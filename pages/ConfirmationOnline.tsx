@@ -1,12 +1,43 @@
 
 import React from 'react';
+import { Booking } from '../types';
 
 interface Props {
   onBackHome: () => void;
   onViewAppointments: () => void;
+  booking?: Booking | null;
 }
 
-const ConfirmationOnline: React.FC<Props> = ({ onBackHome, onViewAppointments }) => {
+const ConfirmationOnline: React.FC<Props> = ({
+  onBackHome,
+  onViewAppointments,
+  booking
+}) => {
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) {
+      const today = new Date();
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${months[today.getMonth()]} ${today.getDate()}, ${today.getFullYear()}`;
+    }
+
+    const date = new Date(dateStr);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  };
+
+  const formatTime = (timeStr?: string) => {
+    if (!timeStr) return '10:00 AM';
+    return timeStr;
+  };
+
+  // Use booking data if available, otherwise show defaults
+  const doctorName = booking?.doctor_name || booking?.doctors?.full_name || 'Dr. Sarah Jenkins';
+  const doctorPhoto = booking?.doctors?.profile_photo_url;
+  const petName = booking?.pets ? `${booking.pets.name} (${booking.pets.species})` : booking?.pet_name || 'Bella (Golden)';
+  const appointmentTime = formatTime(booking?.time);
+  const appointmentDate = formatDate(booking?.date);
+  const consultMethod = booking?.booking_type === 'online' ? 'video' : 'video'; // Default to video for online consults
+  const specialization = booking?.doctors?.specialization || 'Veterinary Specialist';
   return (
     <div className="flex-1 flex flex-col bg-background-light fade-in overflow-hidden">
         <header className="px-6 py-4 flex items-center justify-between sticky top-0 z-30">
@@ -25,19 +56,22 @@ const ConfirmationOnline: React.FC<Props> = ({ onBackHome, onViewAppointments })
                 </div>
                 <div className="text-center space-y-2">
                     <h2 className="text-2xl font-black text-primary tracking-tight">Booking Confirmed!</h2>
-                    <p className="text-sm text-gray-500 font-medium max-w-[280px]">Your video session with Dr. Sarah Smith is all set for tomorrow.</p>
+                    <p className="text-sm text-gray-500 font-medium max-w-[280px]">Your {consultMethod === 'video' ? 'video' : 'chat'} session with {doctorName} is all set.</p>
                 </div>
             </div>
 
             <div className="w-full bg-white rounded-[40px] shadow-sm border border-gray-50 p-8 space-y-6">
                 <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-2xl border-2 border-primary/10 p-1">
-                        <img src="https://picsum.photos/seed/doc1/100/100" className="w-full h-full rounded-xl object-cover" />
+                        <img
+                          src={doctorPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(doctorName)}&size=200&background=random`}
+                          className="w-full h-full rounded-xl object-cover"
+                        />
                     </div>
                     <div>
                         <p className="text-[9px] font-black text-primary uppercase tracking-widest leading-none mb-1">Doctor</p>
-                        <p className="text-lg font-black text-gray-900 leading-none">Dr. Sarah Jenkins</p>
-                        <p className="text-xs text-gray-400 font-bold mt-1">Veterinary Specialist</p>
+                        <p className="text-lg font-black text-gray-900 leading-none">{doctorName}</p>
+                        <p className="text-xs text-gray-400 font-bold mt-1">{specialization}</p>
                     </div>
                 </div>
 
@@ -49,14 +83,14 @@ const ConfirmationOnline: React.FC<Props> = ({ onBackHome, onViewAppointments })
                             <span className="material-symbols-outlined text-[20px]">pets</span>
                             <span className="text-xs font-black uppercase tracking-widest">Pet</span>
                         </div>
-                        <span className="text-sm font-black text-gray-900">Bella (Golden)</span>
+                        <span className="text-sm font-black text-gray-900">{petName}</span>
                     </div>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-gray-400">
-                            <span className="material-symbols-outlined text-[20px]">videocam</span>
+                            <span className="material-symbols-outlined text-[20px]">{consultMethod === 'video' ? 'videocam' : 'chat'}</span>
                             <span className="text-xs font-black uppercase tracking-widest">Type</span>
                         </div>
-                        <span className="text-sm font-black text-gray-900">Video Call</span>
+                        <span className="text-sm font-black text-gray-900">{consultMethod === 'video' ? 'Video Call' : 'Text Chat'}</span>
                     </div>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-gray-400">
@@ -64,8 +98,8 @@ const ConfirmationOnline: React.FC<Props> = ({ onBackHome, onViewAppointments })
                             <span className="text-xs font-black uppercase tracking-widest">Timing</span>
                         </div>
                         <div className="text-right">
-                            <p className="text-sm font-black text-gray-900">Oct 24, 2023</p>
-                            <p className="text-[10px] text-gray-400 font-bold">10:00 AM</p>
+                            <p className="text-sm font-black text-gray-900">{appointmentDate}</p>
+                            <p className="text-[10px] text-gray-400 font-bold">{appointmentTime}</p>
                         </div>
                     </div>
                 </div>

@@ -1,5 +1,6 @@
 
-import React from 'react';
+import React, { useState } from 'react';
+import { authService } from '../services/api';
 
 interface Props {
   onBack: () => void;
@@ -7,9 +8,87 @@ interface Props {
   onAppointmentsClick: () => void;
   onAddressClick: () => void;
   onOrdersClick: () => void;
+  onMyPetsClick: () => void;
+  onPersonalInfoClick?: () => void;
+  onLogout?: () => void;
+  onPlusClick: () => void;
+  onShopClick: () => void;
+  userName?: string;
+  userProfilePhoto?: string | null;
+  userCreatedAt?: string;
+  userId?: string | null;
+  onPhotoUpload?: (photoUrl: string) => void;
 }
 
-const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, onAddressClick, onOrdersClick }) => {
+const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, onAddressClick, onOrdersClick, onMyPetsClick, onPersonalInfoClick, onLogout, onPlusClick, onShopClick, userName, userProfilePhoto, userCreatedAt, userId, onPhotoUpload }) => {
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleLogout = async () => {
+    if (window.confirm('Are you sure you want to log out?')) {
+      setIsLoggingOut(true);
+
+      try {
+        // Sign out from Supabase
+        await authService.signOut();
+
+        // Clear all local storage
+        localStorage.removeItem('user');
+        localStorage.removeItem('otplessUser');
+
+        // Call the onLogout callback if provided
+        if (onLogout) {
+          onLogout();
+        } else {
+          // Fallback: reload the page to reset the app
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Error logging out:', error);
+        alert('Failed to log out. Please try again.');
+      } finally {
+        setIsLoggingOut(false);
+      }
+    }
+  };
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !userId) return;
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size must be less than 5MB');
+      return;
+    }
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+
+    try {
+      const photoUrl = await authService.uploadProfilePhoto(userId, file);
+      if (onPhotoUpload) {
+        onPhotoUpload(photoUrl);
+      }
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      alert('Failed to upload photo. Please try again.');
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const formatMemberSince = (createdAt?: string): string => {
+    if (!createdAt) return '2021';
+    const date = new Date(createdAt);
+    return date.getFullYear().toString();
+  };
   return (
     <div className="flex-1 flex flex-col bg-background-light font-display text-slate-900 overflow-x-hidden fade-in h-screen">
       <div className="relative min-h-screen w-full mx-auto max-w-md bg-background-light flex flex-col pb-24">
@@ -28,15 +107,39 @@ const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, on
         </header>
 
         <section className="flex flex-col items-center pt-8 pb-6 px-4">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handlePhotoUpload}
+            className="hidden"
+          />
           <div className="relative group">
-            <div className="w-28 h-28 rounded-full bg-slate-200 bg-cover bg-center shadow-lg border-4 border-white" style={{backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAHCGM2pGBAFhuDcldw-u7He2UfvPNnSaX-WhGfgG-STTztL47Sl3o7xmmOjkBa27twFaDz0n6C-Tjcx8YnxTg1kDzFWtaKFEkqYftqIX1qTku0lK2liwLp1ImDMKOUVR9jAIREqg5XX8WOtnYv8O6aKeLn_xN_4E6gs0xDHjXn_6aKh4PaZTdmH-wymWBRCUQaqxv9UDtG-7EZv4O-7iexvF3n8r3lsg_SGDHRR213wJ4lcsx7tkOsZHeyWittX1uoW11UIoJcu1Q')"}}></div>
-            <button className="absolute bottom-0 right-0 bg-primary text-white p-2 rounded-full shadow-md hover:bg-primary-light transition-colors border-2 border-white">
-              <span className="material-symbols-outlined text-[18px] block">edit</span>
+            <div className="w-28 h-28 rounded-full bg-slate-200 bg-cover bg-center shadow-lg border-4 border-white overflow-hidden">
+              <img
+                src={userProfilePhoto || "https://lh3.googleusercontent.com/aida-public/AB6AXuAHCGM2pGBAFhuDcldw-u7He2UfvPNnSaX-WhGfgG-STTztL47Sl3o7xmmOjkBa27twFaDz0n6C-Tjcx8YnxTg1kDzFWtaKFEkqYftqIX1qTku0lK2liwLp1ImDMKOUVR9jAIREqg5XX8WOtnYv8O6aKeLn_xN_4E6gs0xDHjXn_6aKh4PaZTdmH-wymWBRCUQaqxv9UDtG-7EZv4O-7iexvF3n8r3lsg_SGDHRR213wJ4lcsx7tkOsZHeyWittX1uoW11UIoJcu1Q"}
+                alt="Profile"
+                className="w-full h-full object-cover"
+              />
+              {isUploadingPhoto && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploadingPhoto}
+              className="absolute bottom-0 right-0 bg-primary text-white p-2 rounded-full shadow-md hover:bg-primary-light transition-colors border-2 border-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="material-symbols-outlined text-[18px] block">
+                {isUploadingPhoto ? 'hourglass_empty' : 'edit'}
+              </span>
             </button>
           </div>
           <div className="mt-4 text-center">
-            <h2 className="text-2xl font-bold text-slate-900">Sarah Jenkins</h2>
-            <p className="text-primary font-medium mt-1">Pet Parent since 2021</p>
+            <h2 className="text-2xl font-bold text-slate-900">{userName || 'Guest User'}</h2>
+            <p className="text-primary font-medium mt-1">Pet Parent since {formatMemberSince(userCreatedAt)}</p>
             <div className="mt-2 inline-flex items-center px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
               <span className="material-symbols-outlined text-[16px] mr-1">workspace_premium</span>
               Premium Member
@@ -47,7 +150,7 @@ const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, on
         <section className="px-4 mt-2 mb-6">
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3 px-2">ACCOUNT</h3>
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <button className="w-full flex items-center p-4 transition-colors hover:bg-slate-50 group">
+            <button onClick={onPersonalInfoClick} className="w-full flex items-center p-4 transition-colors hover:bg-slate-50 group">
               <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary shrink-0">
                 <span className="material-symbols-outlined">person</span>
               </div>
@@ -58,7 +161,7 @@ const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, on
               <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">chevron_right</span>
             </button>
             <div className="h-px w-full bg-gray-50 ml-16"></div>
-            <button 
+            <button
               onClick={onAddressClick}
               className="w-full flex items-center p-4 transition-colors hover:bg-slate-50 group"
             >
@@ -72,7 +175,7 @@ const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, on
               <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">chevron_right</span>
             </button>
             <div className="h-px w-full bg-gray-50 ml-16"></div>
-            <button 
+            <button
               onClick={onOrdersClick}
               className="w-full flex items-center p-4 transition-colors hover:bg-slate-50 group"
             >
@@ -86,7 +189,7 @@ const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, on
               <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">chevron_right</span>
             </button>
             <div className="h-px w-full bg-gray-50 ml-16"></div>
-            <button className="w-full flex items-center p-4 transition-colors hover:bg-slate-50 group">
+            <button onClick={onMyPetsClick} className="w-full flex items-center p-4 transition-colors hover:bg-slate-50 group">
               <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary shrink-0">
                 <span className="material-symbols-outlined">pets</span>
               </div>
@@ -95,8 +198,8 @@ const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, on
                 <p className="text-sm text-slate-500">Manage Bella & Max</p>
               </div>
               <div className="flex -space-x-2 mr-2">
-                <div className="w-8 h-8 rounded-full border-2 border-white bg-gray-200 bg-cover bg-center" style={{backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuC0W4m-cJu46zAkA0yU6ZPLMAuwCj2y6dve0gm7snhV9GPEoTbb6IieeKdLOewAJluzmq1Dm7_W1seEAhskKKbELXhIrydnigbu3rN-LwYeCflECWvFC0JqUfQhvbsctwlH5hdoGh_5l3yDVSuRR-LddHKDgRitPja3CKf81valv0rya3spG2QN-95noySBAqS3xJxwgBpFpdHUxjkFd90FtDurlFUhwj1v8GziVk4han-xUHNVHk1HTn3He-3ETCJUDLuilLnJbqE')"}}></div>
-                <div className="w-8 h-8 rounded-full border-2 border-white bg-gray-200 bg-cover bg-center" style={{backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuArSvMwZ9iEroFin5xBs8t--WL72YSI5KGXy9fhsXkAVxfsVhpcpalEss885nv1MDvbrDlTLGv3o_4TMCtCQxoM57pPgwcLEFGj0Fp56m2HySRiEN971GTkaM3yahGUNgkZX-qtoTtppWHf3nLsHObF1uN2A84lY9svigfS1UVGQzvJt9OrK3Kn_OBZ01VmA6fzlYwHju3z7XsynomY00idls3Tb-Z3kJB15jCw4jJm107r3y_12yNkKhIhddZK7tMUrvmIG_wSsRE')"}}></div>
+                <div className="w-8 h-8 rounded-full border-2 border-white bg-gray-200 bg-cover bg-center" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuC0W4m-cJu46zAkA0yU6ZPLMAuwCj2y6dve0gm7snhV9GPEoTbb6IieeKdLOewAJluzmq1Dm7_W1seEAhskKKbELXhIrydnigbu3rN-LwYeCflECWvFC0JqUfQhvbsctwlH5hdoGh_5l3yDVSuRR-LddHKDgRitPja3CKf81valv0rya3spG2QN-95noySBAqS3xJxwgBpFpdHUxjkFd90FtDurlFUhwj1v8GziVk4han-xUHNVHk1HTn3He-3ETCJUDLuilLnJbqE')" }}></div>
+                <div className="w-8 h-8 rounded-full border-2 border-white bg-gray-200 bg-cover bg-center" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuArSvMwZ9iEroFin5xBs8t--WL72YSI5KGXy9fhsXkAVxfsVhpcpalEss885nv1MDvbrDlTLGv3o_4TMCtCQxoM57pPgwcLEFGj0Fp56m2HySRiEN971GTkaM3yahGUNgkZX-qtoTtppWHf3nLsHObF1uN2A84lY9svigfS1UVGQzvJt9OrK3Kn_OBZ01VmA6fzlYwHju3z7XsynomY00idls3Tb-Z3kJB15jCw4jJm107r3y_12yNkKhIhddZK7tMUrvmIG_wSsRE')" }}></div>
               </div>
               <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">chevron_right</span>
             </button>
@@ -138,34 +241,61 @@ const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, on
           </div>
         </section>
 
-        <section className="px-4 mb-8">
-          <button className="w-full bg-white border border-gray-200 text-red-600 font-semibold py-4 rounded-xl shadow-sm hover:bg-red-50 transition-colors flex items-center justify-center gap-2">
-            <span className="material-symbols-outlined">logout</span>
-            Log Out
+        <section className="px-4 mb-40 pb-24">
+          <button
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="w-full bg-white border border-gray-200 text-red-600 font-semibold py-4 rounded-xl shadow-sm hover:bg-red-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoggingOut ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-red-600"></div>
+                Logging Out...
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined">logout</span>
+                Log Out
+              </>
+            )}
           </button>
           <p className="text-center text-xs text-slate-400 mt-4 font-medium uppercase tracking-widest">Pet Visit App v2.4.0</p>
         </section>
 
         <nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-100 z-50">
-          <div className="flex justify-around items-center h-[72px] pb-2">
-            <button 
+          <div className="grid grid-cols-5 items-center h-[72px] pb-2">
+            <button
               onClick={onHomeClick}
-              className="flex flex-col items-center justify-center flex-1 h-full text-slate-400 hover:text-primary transition-colors"
+              className="flex flex-col items-center justify-center h-full text-slate-400 hover:text-primary transition-colors"
             >
-              <span className="material-symbols-outlined text-[28px]">home</span>
-              <span className="text-[10px] font-bold mt-1 uppercase tracking-widest leading-none">Home</span>
+              <span className="material-symbols-outlined text-[24px]">home</span>
+              <span className="text-[9px] font-bold mt-1 uppercase tracking-widest leading-none">Home</span>
             </button>
-            <button 
+            <button
               onClick={onAppointmentsClick}
-              className="flex flex-col items-center justify-center flex-1 h-full text-slate-400 hover:text-primary transition-colors"
+              className="flex flex-col items-center justify-center h-full text-slate-400 hover:text-primary transition-colors"
             >
-              <span className="material-symbols-outlined text-[28px]">calendar_month</span>
-              <span className="text-[10px] font-bold mt-1 uppercase tracking-widest leading-none">Appointments</span>
+              <span className="material-symbols-outlined text-[24px]">calendar_month</span>
+              <span className="text-[9px] font-bold mt-1 uppercase tracking-widest leading-none">Bookings</span>
             </button>
-            <button className="relative flex flex-col items-center justify-center flex-1 h-full text-primary">
-              <span className="material-symbols-outlined text-[28px] fill-current">person</span>
-              <span className="text-[10px] font-bold mt-1 uppercase tracking-widest leading-none">Profile</span>
-              <span className="absolute top-3 right-8 w-2 h-2 bg-red-500 rounded-full"></span>
+            <button
+              onClick={onPlusClick}
+              className="flex flex-col items-center justify-center h-full -mt-8"
+            >
+              <div className="w-14 h-14 bg-primary rounded-full flex items-center justify-center shadow-lg hover:bg-primary-dark transition-colors">
+                <span className="material-symbols-outlined text-white text-[32px]">add</span>
+              </div>
+            </button>
+            <button
+              onClick={onShopClick}
+              className="flex flex-col items-center justify-center h-full text-slate-400 hover:text-primary transition-colors"
+            >
+              <span className="material-symbols-outlined text-[24px]">storefront</span>
+              <span className="text-[9px] font-bold mt-1 uppercase tracking-widest leading-none">Shop</span>
+            </button>
+            <button className="relative flex flex-col items-center justify-center h-full text-primary">
+              <span className="material-symbols-outlined text-[24px] fill-current">person</span>
+              <span className="text-[9px] font-bold mt-1 uppercase tracking-widest leading-none">Profile</span>
             </button>
           </div>
         </nav>

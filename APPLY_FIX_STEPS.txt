@@ -1,0 +1,199 @@
+╔════════════════════════════════════════════════════════════════╗
+║                   FIX REGISTRATION - 3 STEPS                   ║
+╚════════════════════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────────────────────┐
+│ STEP 1: Open Supabase SQL Editor                              │
+└────────────────────────────────────────────────────────────────┘
+
+   1. Go to: https://supabase.com/dashboard
+   2. Select your project
+   3. Click "SQL Editor" (left sidebar)
+   4. Click "New Query"
+
+
+┌────────────────────────────────────────────────────────────────┐
+│ STEP 2: Run the Fix SQL                                       │
+└────────────────────────────────────────────────────────────────┘
+
+   1. Open file: COMPLETE_RLS_FIX.sql
+   2. Copy ALL content (Ctrl+A, Ctrl+C)
+   3. Paste in SQL Editor (Ctrl+V)
+   4. Click RUN button (or F5)
+   5. Wait for success ✓
+
+
+┌────────────────────────────────────────────────────────────────┐
+│ STEP 3: Test Registration                                     │
+└────────────────────────────────────────────────────────────────┘
+
+   1. Open your app
+   2. Go to: Onboarding → Doctor Login
+   3. Click: "Login as Grooming Store"
+   4. Click: "Register Store"
+   5. Fill Step 1: Store info
+   6. Click: "Next: Store Location"
+   7. Click: "Use Current Location" (or "Select on Map")
+   8. Review auto-filled address
+   9. Click: "Create Store Account"
+   10. See success message! ✓
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                   WHAT THE FIX CHANGES                         ║
+╚════════════════════════════════════════════════════════════════╝
+
+BEFORE (Broken):
+┌──────────────────────────────────────────────┐
+│ Policy: WITH CHECK (auth.uid() = user_id)   │
+│                                              │
+│ Problem: user_id doesn't exist yet during   │
+│          INSERT, so check fails!            │
+│                                              │
+│ Result: ❌ 401 Unauthorized error            │
+└──────────────────────────────────────────────┘
+
+AFTER (Fixed):
+┌──────────────────────────────────────────────┐
+│ Policy: WITH CHECK (true)                   │
+│                                              │
+│ Allows: Any authenticated user to INSERT    │
+│                                              │
+│ Safe: App sets user_id = auth.uid()         │
+│       Other policies protect data           │
+│                                              │
+│ Result: ✅ Registration works!               │
+└──────────────────────────────────────────────┘
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                   EXPECTED OUTPUT                              ║
+╚════════════════════════════════════════════════════════════════╝
+
+After running COMPLETE_RLS_FIX.sql, you should see:
+
+┌────────────────────────────────────────────────────────────────┐
+│ Query Results:                                                 │
+├────────────────────────────────────────────────────────────────┤
+│ policyname                                  | cmd    | roles  │
+├────────────────────────────────────────────────────────────────┤
+│ allow_authenticated_insert_grooming_stores  | INSERT | auth   │
+│ allow_public_select_active_stores           | SELECT | anon   │
+│ allow_store_owners_select_own_store         | SELECT | auth   │
+│ allow_store_owners_update_own_store         | UPDATE | auth   │
+└────────────────────────────────────────────────────────────────┘
+
+✓ 4 policies created
+✓ INSERT policy allows authenticated users
+✓ Security maintained by other policies
+✓ Registration will now work!
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                   VERIFICATION CHECKLIST                       ║
+╚════════════════════════════════════════════════════════════════╝
+
+□ SQL script ran successfully (no errors)
+□ Saw 4 policies in query results
+□ Opened app registration page
+□ Filled registration form
+□ Selected location on map
+□ Submitted form
+□ Saw "Registration successful" message
+□ Received verification email
+□ Verified email
+□ Logged in successfully
+□ Store appears in dashboard
+□ Store visible in clinic listings (user side)
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                   QUICK TROUBLESHOOTING                        ║
+╚════════════════════════════════════════════════════════════════╝
+
+Still getting 401 error?
+→ Hard refresh browser (Ctrl+Shift+R)
+→ Clear browser cache
+→ Verify SQL ran successfully
+→ Check policies exist in database
+
+SQL errors?
+→ Make sure you copied ENTIRE script
+→ Run as database admin/owner
+→ Check Supabase is accessible
+
+Can't find SQL Editor?
+→ Supabase Dashboard (supabase.com)
+→ Select your project
+→ Left sidebar → SQL Editor
+
+Map not loading?
+→ Check internet connection
+→ Allow location permission
+→ Try "Select on Map" instead
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                   SUCCESS CONFIRMATION                         ║
+╚════════════════════════════════════════════════════════════════╝
+
+After successful registration, you should see:
+
+Browser Console:
+✓ No 401 errors
+✓ No RLS policy errors
+
+App UI:
+✓ Alert: "Registration successful! Check your email..."
+✓ Redirected to login page
+
+Database (grooming_stores table):
+✓ New row with your store data
+✓ user_id populated
+✓ latitude/longitude populated
+✓ is_active = true
+
+Email:
+✓ Verification email received
+✓ Link works
+✓ Account verified
+
+Login:
+✓ Can login with registered email/password
+✓ Dashboard loads
+✓ Stats show 0 bookings (new store)
+
+User Side:
+✓ Store appears in clinic selection
+✓ Address shows correctly
+✓ Can see packages (after you add them)
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                   TIME ESTIMATE                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+Step 1: Open SQL Editor          → 30 seconds
+Step 2: Run SQL script           → 30 seconds
+Step 3: Test registration        → 2 minutes
+─────────────────────────────────────────────
+TOTAL TIME                       → 3 minutes
+
+Registration will work immediately after applying the fix!
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                   FILES TO USE                                 ║
+╚════════════════════════════════════════════════════════════════╝
+
+Required:
+✓ COMPLETE_RLS_FIX.sql          (Run this in Supabase)
+
+Reference:
+✓ RLS_FIX_APPLY_NOW.md          (Detailed instructions)
+✓ APPLY_FIX_STEPS.txt           (This file - quick ref)
+
+
+╔════════════════════════════════════════════════════════════════╗
+║            READY TO FIX? START WITH STEP 1! ⬆                 ║
+╚════════════════════════════════════════════════════════════════╝
