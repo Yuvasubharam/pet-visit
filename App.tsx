@@ -8,6 +8,8 @@ import 'leaflet/dist/leaflet.css';
 import Splash from './pages/Splash';
 import Onboarding from './pages/Onboarding';
 import Login from './pages/Login';
+import Register from './pages/Register';
+import SetPassword from './pages/SetPassword';
 import LoginWithOTP from './pages/LoginWithOTP';
 import PetSelection from './pages/PetSelection';
 import AddPet from './pages/AddPet';
@@ -59,6 +61,7 @@ const App: React.FC = () => {
   const [userEmail, setUserEmail] = useState<string>('');
   const [userPhone, setUserPhone] = useState<string>('');
   const [userId, setUserId] = useState<string | null>(null);
+  const [setPasswordEmail, setSetPasswordEmail] = useState<string>(''); // Email for OAuth user setting password
   const [userProfilePhoto, setUserProfilePhoto] = useState<string | null>(null);
   const [userCreatedAt, setUserCreatedAt] = useState<string>('');
   const [selectedPetType, setSelectedPetType] = useState<string>('dog');
@@ -133,28 +136,89 @@ const App: React.FC = () => {
 
   // Load user data on mount and auth state change
   useEffect(() => {
-    // Clean up OAuth hash from URL after successful login
-    if (window.location.hash && window.location.hash.includes('access_token')) {
-      // Remove the hash from URL without reloading
-      window.history.replaceState(null, '', window.location.pathname);
-    }
+    console.log('[useEffect] Auth check starting...');
+    console.log('[useEffect] Current URL:', window.location.href);
+    console.log('[useEffect] URL hash:', window.location.hash);
+    console.log('[useEffect] URL search params:', window.location.search);
 
-    // Check current session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        loadUserData(session.user.id);
+    // Check current session on mount
+    const checkSession = async () => {
+      // Check for OAuth hash with access_token FIRST
+      const hasOAuthHash = window.location.hash && window.location.hash.includes('access_token');
+
+      if (hasOAuthHash) {
+        console.log('[OAuth] OAuth hash detected in URL!');
+        console.log('[OAuth] Full hash:', window.location.hash);
+        console.log('[OAuth] Waiting for Supabase to process the hash...');
+
+        // Wait a bit longer for Supabase to process the OAuth callback
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
-    });
 
-    // Listen for auth changes
+      // Check for OAuth error
+      if (window.location.hash && window.location.hash.includes('error')) {
+        console.error('[OAuth] OAuth error detected in hash:', window.location.hash);
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        console.error('[OAuth] Error:', hashParams.get('error'));
+        console.error('[OAuth] Error description:', hashParams.get('error_description'));
+      }
+
+      console.log('[checkSession] Checking for existing session...');
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+
+        if (error) {
+          console.error('[checkSession] Error getting session:', error);
+          return;
+        }
+
+        if (session?.user) {
+          console.log('[checkSession] ✓ Found session for user:', session.user.email);
+          console.log('[checkSession] Session details:', {
+            userId: session.user.id,
+            email: session.user.email,
+            provider: session.user.app_metadata?.provider
+          });
+
+          // Clean up OAuth hash from URL now that session is established
+          if (hasOAuthHash) {
+            console.log('[OAuth] Cleaning up hash from URL');
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+
+          // User is authenticated, skip onboarding/login screens
+          await loadUserData(session.user.id);
+        } else {
+          console.log('[checkSession] ✗ No session found');
+
+          if (hasOAuthHash) {
+            console.error('[checkSession] WARNING: OAuth hash present but no session!');
+            console.error('[checkSession] This likely means:');
+            console.error('[checkSession] 1. RLS policies are blocking the session');
+            console.error('[checkSession] 2. OR redirect URL is not configured correctly in Supabase');
+          }
+        }
+      } catch (err) {
+        console.error('[checkSession] Exception getting session:', err);
+      }
+    };
+
+    checkSession();
+
+    // Listen for auth changes (like after Google OAuth callback)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('[onAuthStateChange] Auth state changed - Event:', event, 'User:', session?.user?.email);
       if (session?.user) {
-        loadUserData(session.user.id);
+        // User just logged in, load their data and redirect appropriately
+        await loadUserData(session.user.id);
       } else {
+        // User logged out
+        console.log('[onAuthStateChange] User logged out, resetting to onboarding');
         setUserId(null);
         setUserPets([]);
+        setCurrentView('onboarding');
       }
     });
 
@@ -163,10 +227,23 @@ const App: React.FC = () => {
 
   const loadUserData = async (uid: string) => {
     try {
+      console.log('[loadUserData] Starting to load user data for uid:', uid);
+      console.log('[loadUserData] Current view before loading:', currentView);
       setUserId(uid);
 
       // Get current user from Supabase
-      const currentUser = await authService.getCurrentUser();
+      console.log('[loadUserData] Fetching current user from auth...');
+      const currentUser = await Promise.race([
+        authService.getCurrentUser(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('getCurrentUser timeout after 5s')), 5000)
+        )
+      ]).catch(err => {
+        console.error('[loadUserData] Error or timeout getting current user:', err);
+        throw err;
+      });
+      console.log('[loadUserData] ✓ Current user fetched:', (currentUser as any)?.email);
+      console.log('[loadUserData] User metadata:', (currentUser as any)?.user_metadata);
 
       // Check if this is a doctor account
       if (currentUser?.user_metadata?.user_type === 'doctor') {
@@ -194,7 +271,9 @@ const App: React.FC = () => {
       let isNewUser = false;
 
       try {
+        console.log('[loadUserData] Fetching user profile from database...');
         profile = await authService.getUserProfile(uid);
+        console.log('[loadUserData] ✓ Profile fetched:', profile?.name);
 
         // If profile exists but email or phone is missing, update from auth
         if (currentUser && (!profile.email || !profile.phone)) {
@@ -219,19 +298,71 @@ const App: React.FC = () => {
           }
         }
       } catch (err) {
-        // Profile doesn't exist, create it from auth data
-        isNewUser = true;
-        if (currentUser) {
-          const userName = currentUser.user_metadata?.full_name ||
-            currentUser.user_metadata?.name ||
-            currentUser.email?.split('@')[0] ||
-            'User';
+        // Profile doesn't exist for this auth ID
+        console.log('[loadUserData] Profile not found, error:', err);
+        console.log('[loadUserData] Attempting to create new profile or merge existing...');
 
-          profile = await authService.createOrUpdateUserProfile(uid, {
-            name: userName,
-            email: currentUser.email || '',
-            phone: currentUser.phone || '',
-          });
+        // Check if an account with this email already exists (for OAuth account merging)
+        if (currentUser?.email) {
+          const existingProfile = await authService.checkEmailExists(currentUser.email);
+
+          if (existingProfile) {
+            // Email exists in database but with different auth ID
+            // This happens when user registered with email/password, then logged in with Google
+            console.log('[loadUserData] Found existing profile with same email, merging accounts...');
+
+            // Merge: Update the existing profile to use the new auth ID
+            try {
+              profile = await authService.createOrUpdateUserProfile(uid, {
+                name: (existingProfile as any).name || currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || 'User',
+                email: currentUser.email,
+                phone: (existingProfile as any).phone || currentUser.phone || '',
+                profile_photo_url: (existingProfile as any).profile_photo_url || currentUser.user_metadata?.avatar_url || null,
+              });
+              console.log('[loadUserData] Successfully merged account');
+              // Not a new user since they had an account before
+              isNewUser = false;
+            } catch (mergeError) {
+              console.error('[loadUserData] Error merging account:', mergeError);
+              throw mergeError;
+            }
+          } else {
+            // Truly new user, create profile from auth data
+            console.log('[loadUserData] Creating new user profile...');
+            isNewUser = true;
+            const userName = currentUser.user_metadata?.full_name ||
+              currentUser.user_metadata?.name ||
+              currentUser.email?.split('@')[0] ||
+              'User';
+
+            try {
+              profile = await authService.createOrUpdateUserProfile(uid, {
+                name: userName,
+                email: currentUser.email || '',
+                phone: currentUser.phone || '',
+                profile_photo_url: currentUser.user_metadata?.avatar_url || null,
+              });
+              console.log('[loadUserData] Successfully created new profile');
+            } catch (createError) {
+              console.error('[loadUserData] Error creating profile:', createError);
+              throw createError;
+            }
+          }
+        } else {
+          // No email available, create basic profile
+          console.log('[loadUserData] No email available, creating basic profile...');
+          isNewUser = true;
+          try {
+            profile = await authService.createOrUpdateUserProfile(uid, {
+              name: 'User',
+              email: '',
+              phone: currentUser?.phone || '',
+            });
+            console.log('[loadUserData] Successfully created basic profile');
+          } catch (createError) {
+            console.error('[loadUserData] Error creating basic profile:', createError);
+            throw createError;
+          }
         }
       }
 
@@ -246,6 +377,7 @@ const App: React.FC = () => {
       // Load user pets
       const pets = await petService.getUserPets(uid);
       const hasPets = pets && pets.length > 0;
+      console.log('[loadUserData] User has pets:', hasPets, 'Count:', pets?.length);
 
       if (hasPets) {
         setUserPets(pets.map(pet => ({
@@ -276,23 +408,60 @@ const App: React.FC = () => {
       }
 
       // Smart routing: new users or users without pets go to pet selection
-      if (currentView === 'splash' || currentView === 'onboarding' || currentView === 'login' || currentView === 'login-otp') {
-        if (isNewUser || !hasPets) {
-          // New user or user without pets -> go to pet selection
-          setCurrentView('pet-selection');
-        } else {
-          // Existing user with pets -> go to home
-          setCurrentView('home');
-        }
+      console.log('[loadUserData] Routing decision - currentView:', currentView, 'isNewUser:', isNewUser, 'hasPets:', hasPets);
+
+      // Determine the target view based on user state
+      let targetView: AppView;
+      if (!isNewUser && hasPets) {
+        // Existing user with pets -> go to home
+        targetView = 'home';
+        console.log('[loadUserData] Target view: HOME (existing user with pets)');
+      } else if (isNewUser && !hasPets) {
+        // New user without pets -> go to pet selection
+        targetView = 'pet-selection';
+        console.log('[loadUserData] Target view: PET-SELECTION (new user without pets)');
+      } else {
+        // Existing user without pets OR edge case -> go to home
+        targetView = 'home';
+        console.log('[loadUserData] Target view: HOME (existing user without pets OR default)');
+      }
+
+      // Always route authenticated users to their target view
+      // Don't route if user is already on a main app screen (home, grooming, shop, etc.)
+      const authScreens: AppView[] = ['splash', 'onboarding', 'register', 'set-password', 'login', 'login-otp'];
+      if (authScreens.includes(currentView)) {
+        console.log('[loadUserData] User is on auth screen, routing to:', targetView);
+        setCurrentView(targetView);
+      } else {
+        console.log('[loadUserData] User is already on app screen:', currentView, '- not auto-routing');
       }
     } catch (error) {
-      console.error('Error loading user data:', error);
+      console.error('[loadUserData] CRITICAL ERROR loading user data:', error);
+      console.error('[loadUserData] Error details:', JSON.stringify(error, null, 2));
+      // Don't silently fail - show the error to help debug
+      if (error instanceof Error) {
+        console.error('[loadUserData] Error message:', error.message);
+        console.error('[loadUserData] Error stack:', error.stack);
+      }
     }
   };
 
   useEffect(() => {
     if (currentView === 'splash') {
-      const timer = setTimeout(() => setCurrentView('onboarding'), 3000);
+      console.log('[Splash Timer] Setting timer to switch to onboarding in 1s');
+      const timer = setTimeout(() => {
+        console.log('[Splash Timer] Timer fired - checking if we should still go to onboarding');
+        // Only go to onboarding if user is not authenticated
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (!session?.user) {
+            console.log('[Splash Timer] No session, moving to onboarding');
+            setCurrentView('onboarding');
+          } else {
+            console.log('[Splash Timer] User is authenticated, NOT moving to onboarding');
+            // Don't change view - let loadUserData handle routing
+          }
+        });
+      }, 1000); // Changed from 3000ms to 1000ms
       return () => clearTimeout(timer);
     }
   }, [currentView]);
@@ -306,8 +475,10 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (currentView) {
       case 'splash': return <Splash />;
-      case 'onboarding': return <Onboarding onNext={() => setCurrentView('login')} onLogin={() => setCurrentView('login-otp')} onDoctorLogin={() => setCurrentView('doctor-login')} />;
-      case 'login': return <Login onNext={(name) => { setUserName(name); setCurrentView('pet-selection'); }} />;
+      case 'onboarding': return <Onboarding onNext={() => setCurrentView('register')} onLogin={() => setCurrentView('login')} onDoctorLogin={() => setCurrentView('doctor-login')} />;
+      case 'register': return <Register onNext={(name) => { setUserName(name); setCurrentView('pet-selection'); }} onSetPassword={(email) => { setSetPasswordEmail(email); setCurrentView('set-password'); }} />;
+      case 'set-password': return <SetPassword email={setPasswordEmail} onBack={() => setCurrentView('register')} onComplete={() => setCurrentView('home')} />;
+      case 'login': return <Login onNext={(name) => { setUserName(name); setCurrentView('home'); }} />;
       case 'login-otp': return <LoginWithOTP onNext={() => setCurrentView('home')} />;
       case 'pet-selection': return <PetSelection onNext={(petType) => { setSelectedPetType(petType); setCurrentView('add-pet'); }} onAdd={() => setCurrentView('add-pet')} onSkip={() => setCurrentView('home')} userName={userName} />;
       case 'add-pet': return <AddPet onBack={() => setCurrentView('pet-selection')} onCreate={async (pet) => {

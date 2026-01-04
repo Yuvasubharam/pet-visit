@@ -4,12 +4,14 @@ import { authService } from '../services/api';
 
 interface Props {
   onNext: (userName: string) => void;
+  onSetPassword?: (email: string) => void;
 }
 
-const Login: React.FC<Props> = ({ onNext }) => {
+const Register: React.FC<Props> = ({ onNext, onSetPassword }) => {
   const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email');
 
   // Email/Password fields
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -21,9 +23,14 @@ const Login: React.FC<Props> = ({ onNext }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleEmailLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      setError('Please enter both email and password');
+  const handleEmailRegister = async () => {
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
       return;
     }
 
@@ -31,11 +38,42 @@ const Login: React.FC<Props> = ({ onNext }) => {
     setError(null);
 
     try {
-      await authService.signInWithPassword(email, password);
+      await authService.signUpWithEmail(email, password, name);
       // Auth state change will trigger automatic redirect in App.tsx
     } catch (err: any) {
-      console.error('Error logging in:', err);
-      setError(err.message || 'Invalid email or password');
+      console.error('Error registering:', err);
+
+      // Check if this is an OAuth account without password
+      if (err.message === 'OAUTH_NO_PASSWORD') {
+        // Redirect to set password flow
+        if (onSetPassword) {
+          onSetPassword(email);
+        }
+      } else {
+        setError(err.message || 'Failed to create account');
+      }
+
+      setIsLoading(false);
+    }
+  };
+
+  const handleSendOtp = async () => {
+    if (!name.trim() || mobileNumber.length !== 10) {
+      setError('Please enter your name and a valid 10-digit mobile number');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const phoneWithCode = `+91${mobileNumber}`;
+      await authService.signUpWithPhone(phoneWithCode, name);
+      setIsOtpSent(true);
+    } catch (err: any) {
+      console.error('Error sending OTP:', err);
+      setError(err.message || 'Failed to send OTP');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -56,28 +94,6 @@ const Login: React.FC<Props> = ({ onNext }) => {
     } catch (err: any) {
       console.error('Error verifying OTP:', err);
       setError(err.message || 'Invalid OTP');
-      setIsLoading(false);
-    }
-  };
-
-  const handleSendOtp = async () => {
-    if (mobileNumber.length !== 10) {
-      setError('Please enter a valid 10-digit mobile number');
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const phoneWithCode = `+91${mobileNumber}`;
-      // For phone login, we don't need a name since the user already exists
-      await authService.signUpWithPhone(phoneWithCode, 'User');
-      setIsOtpSent(true);
-    } catch (err: any) {
-      console.error('Error sending OTP:', err);
-      setError(err.message || 'Failed to send OTP');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -118,8 +134,8 @@ const Login: React.FC<Props> = ({ onNext }) => {
                 alt="Pet Visit Logo"
                 className="w-32 h-auto object-contain mb-4"
               />
-              <h2 className="text-2xl font-extrabold text-gray-900 mb-1">Welcome Back!</h2>
-              <p className="text-gray-400 text-sm font-medium">Login to your account</p>
+              <h2 className="text-2xl font-extrabold text-gray-900 mb-1">Create Account</h2>
+              <p className="text-gray-400 text-sm font-medium">Join us and start your journey</p>
             </div>
 
             {/* Email/Phone Toggle */}
@@ -159,6 +175,17 @@ const Login: React.FC<Props> = ({ onNext }) => {
               {authMethod === 'email' ? (
                 <>
                   <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700 ml-1">Name</label>
+                    <input
+                      type="text"
+                      placeholder="Enter your name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-50 border-gray-100 rounded-2xl focus:ring-primary focus:border-primary transition-all text-gray-900"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
                     <label className="text-sm font-bold text-gray-700 ml-1">Email</label>
                     <input
                       type="email"
@@ -173,28 +200,41 @@ const Login: React.FC<Props> = ({ onNext }) => {
                     <label className="text-sm font-bold text-gray-700 ml-1">Password</label>
                     <input
                       type="password"
-                      placeholder="Enter your password"
+                      placeholder="Create a password (min 6 characters)"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       onKeyPress={(e) => {
                         if (e.key === 'Enter') {
-                          handleEmailLogin();
+                          handleEmailRegister();
                         }
                       }}
                       className="w-full px-4 py-3 bg-gray-50 border-gray-100 rounded-2xl focus:ring-primary focus:border-primary transition-all text-gray-900"
                     />
+                    <p className="text-xs text-gray-500 ml-1">Must be at least 6 characters</p>
                   </div>
 
                   <button
-                    onClick={handleEmailLogin}
+                    onClick={handleEmailRegister}
                     disabled={isLoading}
                     className="w-full py-4 bg-primary hover:bg-primary-light text-white font-bold text-lg rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed mt-2"
                   >
-                    {isLoading ? 'LOGGING IN...' : 'LOGIN'}
+                    {isLoading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
                   </button>
                 </>
               ) : (
                 <>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700 ml-1">Name</label>
+                    <input
+                      type="text"
+                      placeholder="Enter your name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      disabled={isOtpSent}
+                      className="w-full px-4 py-3 bg-gray-50 border-gray-100 rounded-2xl focus:ring-primary focus:border-primary transition-all text-gray-900 disabled:opacity-50"
+                    />
+                  </div>
+
                   <div className="space-y-2">
                     <label className="text-sm font-bold text-gray-700 ml-1">Mobile Number</label>
                     <div className="relative">
@@ -243,10 +283,10 @@ const Login: React.FC<Props> = ({ onNext }) => {
 
                   <button
                     onClick={isOtpSent ? handleVerifyOtp : handleSendOtp}
-                    disabled={isLoading || (isOtpSent && otp.length !== 6) || (!isOtpSent && mobileNumber.length !== 10)}
+                    disabled={isLoading || (isOtpSent && otp.length !== 6) || (!isOtpSent && (!name.trim() || mobileNumber.length !== 10))}
                     className="w-full py-4 bg-primary hover:bg-primary-light text-white font-bold text-lg rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed mt-2"
                   >
-                    {isOtpSent ? (isLoading ? 'VERIFYING...' : 'VERIFY OTP') : (isLoading ? 'SENDING...' : 'SEND OTP')}
+                    {isOtpSent ? (isLoading ? 'VERIFYING...' : 'VERIFY & CREATE ACCOUNT') : (isLoading ? 'SENDING...' : 'SEND OTP')}
                   </button>
                 </>
               )}
@@ -280,7 +320,7 @@ const Login: React.FC<Props> = ({ onNext }) => {
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-                Sign in with Google
+                Sign up with Google
               </button>
             </div>
           </div>
@@ -296,4 +336,4 @@ const Login: React.FC<Props> = ({ onNext }) => {
   );
 };
 
-export default Login;
+export default Register;

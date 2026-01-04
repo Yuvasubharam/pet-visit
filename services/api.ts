@@ -49,6 +49,129 @@ export const authService = {
     return data;
   },
 
+  async signUpWithEmail(email: string, password: string, name: string) {
+    // First, check if an account with this email already exists
+    const existingProfile = await this.checkEmailExists(email);
+
+    if (existingProfile) {
+      // Account exists - check if it has a password set
+      const hasPassword = await this.checkUserHasPassword(email);
+
+      if (!hasPassword) {
+        // OAuth account without password - return special error
+        throw new Error('OAUTH_NO_PASSWORD');
+      } else {
+        // Account exists with password - user should login instead
+        throw new Error('An account with this email already exists. Please login instead.');
+      }
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name: name,
+          full_name: name,
+        },
+      },
+    });
+
+    if (error) throw error;
+
+    // Create user profile
+    if (data.user) {
+      await supabase.from('users').upsert({
+        id: data.user.id,
+        email,
+        name,
+      });
+    }
+
+    return data;
+  },
+
+  async checkEmailExists(email: string) {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        // PGRST116 is "no rows returned", which is fine
+        throw error;
+      }
+
+      return data;
+    } catch (err) {
+      console.error('Error checking email:', err);
+      return null;
+    }
+  },
+
+  async checkUserHasPassword(email: string) {
+    try {
+      // Try to sign in with a dummy password to check if password auth is enabled
+      // This is a workaround since Supabase doesn't expose password status directly
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password: '__CHECK_PASSWORD_EXISTS__', // Dummy password
+      });
+
+      if (error) {
+        // If error is "Invalid login credentials", password exists
+        // If error is "Email not confirmed" or similar, password exists
+        // If error is "User not found" or "No password set", password doesn't exist
+        if (error.message.includes('Invalid login credentials')) {
+          return true; // Password exists (just wrong password)
+        }
+        // For OAuth users, Supabase returns "Invalid login credentials" anyway
+        // So we need a different approach - check user metadata
+        return false;
+      }
+
+      return true; // Successful login (shouldn't happen with dummy password)
+    } catch (err) {
+      console.error('Error checking password:', err);
+      return false;
+    }
+  },
+
+  async setPasswordForOAuthUser(email: string, password: string) {
+    try {
+      // Use Supabase Admin API to update user password
+      // First get the current user by email
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user || user.email !== email) {
+        throw new Error('User not authenticated or email mismatch');
+      }
+
+      // Update password using updateUser
+      const { data, error } = await supabase.auth.updateUser({
+        password: password,
+      });
+
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      console.error('Error setting password:', err);
+      throw err;
+    }
+  },
+
+  async signInWithPassword(email: string, password: string) {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) throw error;
+    return data;
+  },
+
   async signOut() {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;

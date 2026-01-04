@@ -200,6 +200,8 @@ export interface PrescriptionProduct {
 export type AppView =
   | 'splash'
   | 'onboarding'
+  | 'register'
+  | 'set-password'
   | 'login'
   | 'login-otp'
   | 'pet-selection'
