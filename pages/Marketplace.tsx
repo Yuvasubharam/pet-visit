@@ -186,7 +186,7 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                     <button onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 hover:bg-gray-100 transition-colors">
                         <span className="material-symbols-outlined text-gray-900">arrow_back</span>
                     </button>
-                    <img src="assets/images/logo.png" className="h-8 w-8 object-contain" alt="Logo" />
+                    <img src="/assets/images/logo.png" className="h-8 w-8 object-contain" alt="Logo" />
                     <h1 className="text-xl font-black text-primary tracking-tight font-display">Pet Market</h1>
                 </div>
                 <button
@@ -244,8 +244,8 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                                 key={petType.id}
                                 onClick={() => setSelectedPetType(petType.id)}
                                 className={`px-5 py-2.5 rounded-full flex items-center gap-2 shrink-0 transition-all active:scale-95 ${selectedPetType === petType.id
-                                        ? 'bg-primary text-white shadow-lg shadow-primary/30'
-                                        : 'bg-white text-gray-700 shadow-sm border border-gray-100 hover:border-primary/30'
+                                    ? 'bg-primary text-white shadow-lg shadow-primary/30'
+                                    : 'bg-white text-gray-700 shadow-sm border border-gray-100 hover:border-primary/30'
                                     }`}
                             >
                                 <span className="material-symbols-outlined text-[16px]">{petType.icon}</span>
@@ -262,8 +262,8 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                         <button
                             onClick={() => setSelectedCategory('All')}
                             className={`px-6 py-3 rounded-2xl flex items-center gap-2 shrink-0 shadow-lg transition-all active:scale-95 ${selectedCategory === 'All'
-                                    ? 'bg-primary text-white shadow-primary/20'
-                                    : 'bg-white text-gray-700 shadow-sm border border-gray-50 hover:border-primary/20'
+                                ? 'bg-primary text-white shadow-primary/20'
+                                : 'bg-white text-gray-700 shadow-sm border border-gray-50 hover:border-primary/20'
                                 }`}
                         >
                             <span className="material-symbols-outlined text-[18px]">apps</span>
@@ -281,8 +281,8 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                                 key={cat.name}
                                 onClick={() => setSelectedCategory(cat.name)}
                                 className={`px-6 py-3 rounded-2xl flex items-center gap-2 shrink-0 shadow-sm border transition-all active:scale-95 ${selectedCategory === cat.name
-                                        ? 'bg-primary text-white border-primary shadow-primary/20'
-                                        : 'bg-white text-gray-700 border-gray-50 hover:border-primary/20'
+                                    ? 'bg-primary text-white border-primary shadow-primary/20'
+                                    : 'bg-white text-gray-700 border-gray-50 hover:border-primary/20'
                                     }`}
                             >
                                 <span className={`material-symbols-outlined text-[18px] ${selectedCategory === cat.name ? 'text-white' : 'text-primary'}`}>{cat.icon}</span>

@@ -422,7 +422,7 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                     <button onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 hover:bg-gray-100 transition-colors">
                         <span className="material-symbols-outlined text-gray-900">arrow_back</span>
                     </button>
-                    <img src="assets/images/logo.png" className="h-8 w-8 object-contain" alt="Logo" />
+                    <img src="/assets/images/logo.png" className="h-8 w-8 object-contain" alt="Logo" />
                     <h1 className="text-xl font-black text-primary tracking-tight font-display">
                         {isRescheduling ? 'Reschedule Grooming' : 'Grooming'}
                     </h1>
@@ -677,8 +677,8 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                                 key={store.id}
                                 onClick={() => !isRescheduling && setSelectedStore(store)}
                                 className={`flex-shrink-0 w-[280px] p-5 rounded-[24px] border-2 transition-all ${isRescheduling ? 'cursor-default' : 'cursor-pointer'} ${selectedStore?.id === store.id
-                                        ? 'border-primary bg-white ring-4 ring-primary/5 shadow-xl'
-                                        : 'border-white bg-white shadow-sm hover:shadow-md'
+                                    ? 'border-primary bg-white ring-4 ring-primary/5 shadow-xl'
+                                    : 'border-white bg-white shadow-sm hover:shadow-md'
                                     }`}
                             >
                                 <div className="flex items-start justify-between mb-3">
@@ -836,8 +836,8 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                                         setShowAddressDropdown(false);
                                     }}
                                     className={`w-full p-4 rounded-[20px] border-2 transition-all text-left ${userAddress?.id === addr.id
-                                            ? 'border-primary bg-primary/5'
-                                            : 'border-gray-200 hover:border-gray-300'
+                                        ? 'border-primary bg-primary/5'
+                                        : 'border-gray-200 hover:border-gray-300'
                                         }`}
                                 >
                                     <div className="flex items-start gap-3">

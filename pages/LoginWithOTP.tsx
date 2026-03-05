@@ -159,7 +159,7 @@ const LoginWithOTP: React.FC<Props> = ({ onNext }) => {
             <div className="flex flex-col items-center mb-8">
               <div className="flex items-center gap-3 mb-4">
                 <img
-                  src="./assets/images/logo.png"
+                  src="/assets/images/logo.png"
                   alt="Furora Care Logo"
                   className="w-16 h-16 object-contain"
                 />

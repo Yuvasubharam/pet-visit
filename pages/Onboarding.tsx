@@ -71,7 +71,7 @@ const Onboarding: React.FC<Props> = ({ onNext, onLogin, onDoctorLogin, onAdminLo
           <div className="flex items-center gap-3 mb-8 text-primary">
             <div className="relative">
               <img
-                src="./assets/images/logo.png"
+                src="/assets/images/logo.png"
                 alt="Furora Care Logo"
                 className="w-16 h-16 relative z-1 object-contain"
               />
