@@ -37,6 +37,7 @@ import OrdersHistory from './pages/OrdersHistory';
 import OrderDetailsPage from './pages/OrderDetailsPage';
 import MyPets from './pages/MyPets';
 import PersonalInformation from './pages/PersonalInformation';
+import RescheduleConfirmation from './pages/RescheduleConfirmation';
 import DoctorLogin from './pages/DoctorLogin';
 import DoctorRegister from './pages/DoctorRegister';
 import DoctorDashboard from './pages/DoctorDashboard';
@@ -50,11 +51,45 @@ import GroomingStoreRegister from './pages/GroomingStoreRegister';
 import GroomingStoreDashboard from './pages/GroomingStoreDashboard';
 import GroomingStoreBookings from './pages/GroomingStoreBookings';
 import GroomingStoreManagement from './pages/GroomingStoreManagement';
+import CustomerManagement from './pages/CustomerManagement';
+import AdminUsersManagement from './pages/AdminUsersManagement';
+import UserDetails from './pages/UserDetails';
+import DoctorManagement from './pages/DoctorManagement';
+import ShopProductManagement from './pages/ShopProductManagement';
+import AdminCreateProduct from './pages/AdminCreateProduct';
+import AdminCreateGroupedProduct from './pages/AdminCreateGroupedProduct';
+import AdminProductVariations from './pages/AdminProductVariations';
+import AdminBulkImport from './pages/AdminBulkImport';
+import AdminDashboard from './pages/AdminDashboard';
+import SellerApprovalManagement from './pages/SellerApprovalManagement';
+import OrderManagement from './pages/OrderManagement';
+import AdminSettlementManagement from './pages/AdminSettlementManagement';
+import AdminMarginManagement from './pages/AdminMarginManagement';
+const AdminNotifications = React.lazy(() => import('./pages/AdminNotifications'));
 import NewBookingPopup from './components/NewBookingPopup';
 import LocationSelection from './components/LocationSelection';
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<AppView>('splash');
+  const [currentView, setCurrentView] = useState<AppView>(() => {
+    const saved = localStorage.getItem('pet-visit-current-view');
+    // If saved view exists and is not a "transient" view that should always go through splash/auth, return it
+    if (saved && !['splash'].includes(saved)) {
+      return saved as AppView;
+    }
+    return 'splash';
+  });
+
+  // Persist current view to localStorage
+  useEffect(() => {
+    if (currentView !== 'splash') {
+      localStorage.setItem('pet-visit-current-view', currentView);
+    }
+  }, [currentView]);
+  const [isLoadingUserData, setIsLoadingUserData] = useState(() => {
+    const saved = localStorage.getItem('pet-visit-current-view');
+    // If we have a saved view that isn't splash/onboarding, we should show loader while checking session
+    return !!(saved && !['splash', 'onboarding'].includes(saved));
+  });
   const [showBookingPopup, setShowBookingPopup] = useState(false);
   const [showLocationPopup, setShowLocationPopup] = useState(false);
   const [userName, setUserName] = useState<string>('');
@@ -86,6 +121,12 @@ const App: React.FC = () => {
 
   // Last created booking for confirmation pages
   const [lastCreatedBooking, setLastCreatedBooking] = useState<Booking | null>(null);
+
+  // Reschedule state - stores booking being rescheduled
+  const [reschedulingBooking, setReschedulingBooking] = useState<Booking | null>(null);
+
+  // Store old date/time for reschedule confirmation
+  const [oldSchedule, setOldSchedule] = useState<{ date: string; time: string } | null>(null);
 
   // Pending booking data (before payment) for Checkout
   const [pendingBookingData, setPendingBookingData] = useState<{
@@ -133,6 +174,17 @@ const App: React.FC = () => {
   // Grooming Store portal state
   const [groomingStoreId, setGroomingStoreId] = useState<string | null>(null);
   const [isGroomingStoreMode, setIsGroomingStoreMode] = useState(false);
+
+  // Admin portal state
+  const [adminId, setAdminId] = useState<string | null>(null);
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  
+  // Store Manager portal state
+  const [storeManagerId, setStoreManagerId] = useState<string | null>(null);
+  const [isStoreManagerMode, setIsStoreManagerMode] = useState(false);
+
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   // Load user data on mount and auth state change
   useEffect(() => {
@@ -187,9 +239,10 @@ const App: React.FC = () => {
           }
 
           // User is authenticated, skip onboarding/login screens
-          await loadUserData(session.user.id);
+          await loadUserData(session.user.id, session.user);
         } else {
           console.log('[checkSession] ✗ No session found');
+          setIsLoadingUserData(false);
 
           if (hasOAuthHash) {
             console.error('[checkSession] WARNING: OAuth hash present but no session!');
@@ -200,6 +253,7 @@ const App: React.FC = () => {
         }
       } catch (err) {
         console.error('[checkSession] Exception getting session:', err);
+        setIsLoadingUserData(false);
       }
     };
 
@@ -212,12 +266,14 @@ const App: React.FC = () => {
       console.log('[onAuthStateChange] Auth state changed - Event:', event, 'User:', session?.user?.email);
       if (session?.user) {
         // User just logged in, load their data and redirect appropriately
-        await loadUserData(session.user.id);
+        // Pass the session user to avoid redundant getUser() call
+        await loadUserData(session.user.id, session.user);
       } else {
         // User logged out
         console.log('[onAuthStateChange] User logged out, resetting to onboarding');
         setUserId(null);
         setUserPets([]);
+        localStorage.removeItem('pet-visit-current-view');
         setCurrentView('onboarding');
       }
     });
@@ -225,147 +281,162 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadUserData = async (uid: string) => {
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+  const loadingRef = React.useRef(false);
+
+  const loadUserData = async (uid: string, sessionUser?: any) => {
+    // Prevent duplicate calls using a ref instead of state to avoid race conditions
+    if (loadingRef.current) {
+      console.log('[loadUserData] Already loading user data, skipping duplicate call');
+      return;
+    }
+    
+    loadingRef.current = true;
+    setIsLoadingUserData(true);
+
     try {
       console.log('[loadUserData] Starting to load user data for uid:', uid);
       console.log('[loadUserData] Current view before loading:', currentView);
       setUserId(uid);
 
-      // Get current user from Supabase
-      console.log('[loadUserData] Fetching current user from auth...');
-      const currentUser = await Promise.race([
-        authService.getCurrentUser(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('getCurrentUser timeout after 5s')), 5000)
-        )
-      ]).catch(err => {
-        console.error('[loadUserData] Error or timeout getting current user:', err);
-        throw err;
-      });
-      console.log('[loadUserData] ✓ Current user fetched:', (currentUser as any)?.email);
-      console.log('[loadUserData] User metadata:', (currentUser as any)?.user_metadata);
+      // Use session user if provided, otherwise get from auth (with shorter timeout)
+      let currentUser = sessionUser;
 
-      // Check if this is a doctor account
-      if (currentUser?.user_metadata?.user_type === 'doctor') {
-        // This is a doctor, load doctor profile instead
+      if (!currentUser) {
+        console.log('[loadUserData] No session user provided, fetching from auth...');
+        currentUser = await Promise.race([
+          authService.getCurrentUser(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('getCurrentUser timeout after 5s')), 5000)
+          )
+        ]).catch(err => {
+          console.error('[loadUserData] Error or timeout getting current user:', err);
+          console.log('[loadUserData] Continuing without current user data...');
+          return null;
+        });
+      }
+
+      if (currentUser) {
+        console.log('[loadUserData] ✓ Current user available:', currentUser?.email);
+        console.log('[loadUserData] User metadata:', currentUser?.user_metadata);
+      }
+
+      // Check metadata FIRST for roles - fastest way to route
+      const metadataUserType = currentUser?.user_metadata?.user_type;
+      console.log('[loadUserData] Metadata - user_type:', metadataUserType);
+
+      let profile;
+      let isNewUser = false;
+      let userRole: string = 'user';
+
+      // 1. DETERMINE ROLE
+      if (metadataUserType && ['admin', 'super_admin', 'doctor', 'grooming_store', 'store_manager'].includes(metadataUserType)) {
+        console.log('[loadUserData] ✓ Special role found in metadata:', metadataUserType);
+        userRole = metadataUserType;
+      } else {
+        // No special role in metadata - try to fetch regular user profile with timeout
+        console.log('[loadUserData] No special role in metadata, fetching user profile...');
         try {
-          const doctorProfile = await doctorAuthService.getDoctorProfile(uid);
-          if (doctorProfile && (doctorProfile as any).id) {
-            setDoctorId((doctorProfile as any).id);
-            setIsDoctorMode(true);
-            // Only redirect if we're on login/splash screens
-            if (currentView === 'splash' || currentView === 'onboarding' || currentView === 'doctor-login') {
-              setCurrentView('doctor-dashboard');
-            }
+          const profilePromise = authService.getUserProfile(uid);
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('getUserProfile timeout after 5s')), 5000)
+          );
+
+          profile = await Promise.race([profilePromise, timeoutPromise]);
+          userRole = profile?.role || 'user';
+          console.log('[loadUserData] ✓ Profile fetched, role:', userRole);
+        } catch (err) {
+          console.log('[loadUserData] Profile fetch failed or timed out:', err);
+          userRole = 'user'; // Fallback
+        }
+      }
+
+      // 2. SET BASIC USER INFO
+      if (currentUser) {
+        setUserName(currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'User');
+        setUserEmail(currentUser.email || '');
+      }
+
+      // 3. ROUTE BASED ON ROLE
+      console.log('[loadUserData] Routing for role:', userRole);
+
+      if (userRole === 'admin' || userRole === 'super_admin') {
+        setAdminId(uid);
+        setIsAdminMode(true);
+        setCurrentView(prevView => {
+          if (['splash', 'onboarding', 'login', 'admin-login'].includes(prevView) || !prevView.startsWith('admin-')) {
+            return 'admin-dashboard';
           }
-          return; // Exit early, don't load user profile
-        } catch (error) {
-          console.error('Error loading doctor profile:', error);
-          // Doctor profile doesn't exist, stay on current screen
+          return prevView; // Keep current admin view on refresh
+        });
+        return;
+      }
+
+      if (userRole === 'doctor') {
+        try {
+          const doctorProfile = await Promise.race([
+            doctorAuthService.getDoctorProfile(uid),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+          ]);
+          
+          if (doctorProfile) {
+            setDoctorId(doctorProfile.id);
+            if (doctorProfile.full_name) setUserName(doctorProfile.full_name);
+          } else {
+            setDoctorId(uid);
+          }
+          
+          setIsDoctorMode(true);
+          setCurrentView(prevView => {
+            if (['splash', 'onboarding', 'doctor-login'].includes(prevView) || !prevView.startsWith('doctor-')) {
+              return 'doctor-dashboard';
+            }
+            return prevView;
+          });
+          return;
+        } catch (err) {
+          console.error('[loadUserData] Doctor profile load error:', err);
+          setDoctorId(uid);
+          setIsDoctorMode(true);
+          setCurrentView('doctor-dashboard');
           return;
         }
       }
 
-      // Load or create user profile
-      let profile;
-      let isNewUser = false;
-
-      try {
-        console.log('[loadUserData] Fetching user profile from database...');
-        profile = await authService.getUserProfile(uid);
-        console.log('[loadUserData] ✓ Profile fetched:', profile?.name);
-
-        // If profile exists but email or phone is missing, update from auth
-        if (currentUser && (!profile.email || !profile.phone)) {
-          const updates: { email?: string; phone?: string } = {};
-
-          if (!profile.email && currentUser.email) {
-            updates.email = currentUser.email;
-          }
-
-          if (!profile.phone && currentUser.phone) {
-            updates.phone = currentUser.phone;
-          }
-
-          // Update profile with missing data from auth
-          if (Object.keys(updates).length > 0) {
-            profile = await authService.createOrUpdateUserProfile(uid, {
-              name: profile.name,
-              email: updates.email || profile.email,
-              phone: updates.phone || profile.phone,
-              profile_photo_url: profile.profile_photo_url,
-            });
-          }
-        }
-      } catch (err) {
-        // Profile doesn't exist for this auth ID
-        console.log('[loadUserData] Profile not found, error:', err);
-        console.log('[loadUserData] Attempting to create new profile or merge existing...');
-
-        // Check if an account with this email already exists (for OAuth account merging)
-        if (currentUser?.email) {
-          const existingProfile = await authService.checkEmailExists(currentUser.email);
-
-          if (existingProfile) {
-            // Email exists in database but with different auth ID
-            // This happens when user registered with email/password, then logged in with Google
-            console.log('[loadUserData] Found existing profile with same email, merging accounts...');
-
-            // Merge: Update the existing profile to use the new auth ID
-            try {
-              profile = await authService.createOrUpdateUserProfile(uid, {
-                name: (existingProfile as any).name || currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || 'User',
-                email: currentUser.email,
-                phone: (existingProfile as any).phone || currentUser.phone || '',
-                profile_photo_url: (existingProfile as any).profile_photo_url || currentUser.user_metadata?.avatar_url || null,
-              });
-              console.log('[loadUserData] Successfully merged account');
-              // Not a new user since they had an account before
-              isNewUser = false;
-            } catch (mergeError) {
-              console.error('[loadUserData] Error merging account:', mergeError);
-              throw mergeError;
-            }
+      if (userRole === 'grooming_store' || userRole === 'store_manager') {
+        try {
+          const { groomingStoreAuthService } = await import('./services/groomingStoreApi');
+          const storeProfile = await Promise.race([
+            groomingStoreAuthService.getGroomingStoreProfile(uid),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+          ]);
+          
+          if (storeProfile) {
+            setGroomingStoreId(storeProfile.id);
+            if (storeProfile.store_name) setUserName(storeProfile.store_name);
           } else {
-            // Truly new user, create profile from auth data
-            console.log('[loadUserData] Creating new user profile...');
-            isNewUser = true;
-            const userName = currentUser.user_metadata?.full_name ||
-              currentUser.user_metadata?.name ||
-              currentUser.email?.split('@')[0] ||
-              'User';
-
-            try {
-              profile = await authService.createOrUpdateUserProfile(uid, {
-                name: userName,
-                email: currentUser.email || '',
-                phone: currentUser.phone || '',
-                profile_photo_url: currentUser.user_metadata?.avatar_url || null,
-              });
-              console.log('[loadUserData] Successfully created new profile');
-            } catch (createError) {
-              console.error('[loadUserData] Error creating profile:', createError);
-              throw createError;
+            setGroomingStoreId(uid);
+          }
+          
+          setIsGroomingStoreMode(true);
+          setCurrentView(prevView => {
+            if (['splash', 'onboarding', 'grooming-store-login'].includes(prevView) || !prevView.startsWith('grooming-store-')) {
+              return 'grooming-store-dashboard';
             }
-          }
-        } else {
-          // No email available, create basic profile
-          console.log('[loadUserData] No email available, creating basic profile...');
-          isNewUser = true;
-          try {
-            profile = await authService.createOrUpdateUserProfile(uid, {
-              name: 'User',
-              email: '',
-              phone: currentUser?.phone || '',
-            });
-            console.log('[loadUserData] Successfully created basic profile');
-          } catch (createError) {
-            console.error('[loadUserData] Error creating basic profile:', createError);
-            throw createError;
-          }
+            return prevView;
+          });
+          return;
+        } catch (err) {
+          console.error('[loadUserData] Store profile load error:', err);
+          setGroomingStoreId(uid);
+          setIsGroomingStoreMode(true);
+          setCurrentView('grooming-store-dashboard');
+          return;
         }
       }
 
+      // Regular User Flow
+      console.log('[loadUserData] Processing as regular user...');
       if (profile) {
         setUserName(profile.name);
         setUserEmail(profile.email || '');
@@ -374,12 +445,13 @@ const App: React.FC = () => {
         setUserCreatedAt(profile.created_at);
       }
 
-      // Load user pets
-      const pets = await petService.getUserPets(uid);
-      const hasPets = pets && pets.length > 0;
-      console.log('[loadUserData] User has pets:', hasPets, 'Count:', pets?.length);
+      // Load data with timeouts
+      const [pets, addresses] = await Promise.all([
+        Promise.race([petService.getUserPets(uid), new Promise<any[]>(r => setTimeout(() => r([]), 3000))]),
+        Promise.race([addressService.getUserAddresses(uid), new Promise<any[]>(r => setTimeout(() => r([]), 3000))])
+      ]);
 
-      if (hasPets) {
+      if (pets && pets.length > 0) {
         setUserPets(pets.map(pet => ({
           id: pet.id,
           name: pet.name,
@@ -388,61 +460,41 @@ const App: React.FC = () => {
         })));
       }
 
-      // Load user addresses
-      const addresses = await addressService.getUserAddresses(uid);
       if (addresses && addresses.length > 0) {
-        const primaryAddress = addresses[0];
+        const addr = addresses[0];
         setUserAddress({
-          id: primaryAddress.id,
-          type: primaryAddress.type,
-          flatNumber: primaryAddress.flat_number,
-          street: primaryAddress.street,
-          landmark: primaryAddress.landmark,
-          city: primaryAddress.city,
-          state: primaryAddress.state,
-          pincode: primaryAddress.pincode,
-          latitude: primaryAddress.latitude || undefined,
-          longitude: primaryAddress.longitude || undefined,
-          fullAddress: primaryAddress.full_address || undefined,
+          id: addr.id,
+          type: addr.type,
+          flatNumber: addr.flat_number,
+          street: addr.street,
+          landmark: addr.landmark,
+          city: addr.city,
+          state: addr.state,
+          pincode: addr.pincode,
+          latitude: addr.latitude || undefined,
+          longitude: addr.longitude || undefined,
+          fullAddress: addr.full_address || undefined,
         });
       }
 
-      // Smart routing: new users or users without pets go to pet selection
-      console.log('[loadUserData] Routing decision - currentView:', currentView, 'isNewUser:', isNewUser, 'hasPets:', hasPets);
+      // Routing for users
+      const hasPets = pets && pets.length > 0;
+      setCurrentView(prevView => {
+        if (['splash', 'onboarding', 'login', 'login-otp', 'register'].includes(prevView)) {
+          return hasPets ? 'home' : 'pet-selection';
+        }
+        return prevView;
+      });
 
-      // Determine the target view based on user state
-      let targetView: AppView;
-      if (!isNewUser && hasPets) {
-        // Existing user with pets -> go to home
-        targetView = 'home';
-        console.log('[loadUserData] Target view: HOME (existing user with pets)');
-      } else if (isNewUser && !hasPets) {
-        // New user without pets -> go to pet selection
-        targetView = 'pet-selection';
-        console.log('[loadUserData] Target view: PET-SELECTION (new user without pets)');
-      } else {
-        // Existing user without pets OR edge case -> go to home
-        targetView = 'home';
-        console.log('[loadUserData] Target view: HOME (existing user without pets OR default)');
-      }
-
-      // Always route authenticated users to their target view
-      // Don't route if user is already on a main app screen (home, grooming, shop, etc.)
-      const authScreens: AppView[] = ['splash', 'onboarding', 'register', 'set-password', 'login', 'login-otp'];
-      if (authScreens.includes(currentView)) {
-        console.log('[loadUserData] User is on auth screen, routing to:', targetView);
-        setCurrentView(targetView);
-      } else {
-        console.log('[loadUserData] User is already on app screen:', currentView, '- not auto-routing');
-      }
     } catch (error) {
-      console.error('[loadUserData] CRITICAL ERROR loading user data:', error);
-      console.error('[loadUserData] Error details:', JSON.stringify(error, null, 2));
-      // Don't silently fail - show the error to help debug
-      if (error instanceof Error) {
-        console.error('[loadUserData] Error message:', error.message);
-        console.error('[loadUserData] Error stack:', error.stack);
-      }
+      console.error('[loadUserData] CRITICAL ERROR:', error);
+      // Ensure we don't stay stuck on splash
+      setCurrentView(prev => ['splash', 'onboarding'].includes(prev) ? 'home' : prev);
+    } finally {
+      setIsLoadingUserData(false);
+      loadingRef.current = false;
+      setIsDataLoaded(true);
+      console.log('[loadUserData] Finished');
     }
   };
 
@@ -457,8 +509,9 @@ const App: React.FC = () => {
             console.log('[Splash Timer] No session, moving to onboarding');
             setCurrentView('onboarding');
           } else {
-            console.log('[Splash Timer] User is authenticated, NOT moving to onboarding');
-            // Don't change view - let loadUserData handle routing
+            console.log('[Splash Timer] User is authenticated, triggering loadUserData');
+            // Trigger loadUserData with session user to ensure navigation happens
+            loadUserData(session.user.id, session.user);
           }
         });
       }, 1000); // Changed from 3000ms to 1000ms
@@ -475,7 +528,7 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (currentView) {
       case 'splash': return <Splash />;
-      case 'onboarding': return <Onboarding onNext={() => setCurrentView('register')} onLogin={() => setCurrentView('login')} onDoctorLogin={() => setCurrentView('doctor-login')} />;
+      case 'onboarding': return <Onboarding onNext={() => setCurrentView('register')} onLogin={() => setCurrentView('login')} onDoctorLogin={() => setCurrentView('doctor-login')} onAdminLogin={() => setCurrentView('admin-login')} />;
       case 'register': return <Register onNext={(name) => { setUserName(name); setCurrentView('pet-selection'); }} onSetPassword={(email) => { setSetPasswordEmail(email); setCurrentView('set-password'); }} />;
       case 'set-password': return <SetPassword email={setPasswordEmail} onBack={() => setCurrentView('register')} onComplete={() => setCurrentView('home')} />;
       case 'login': return <Login onNext={(name) => { setUserName(name); setCurrentView('home'); }} />;
@@ -516,12 +569,7 @@ const App: React.FC = () => {
               try {
                 const updatedPet = await petService.updatePet(petId, updates);
                 if (updatedPet) {
-                  setUserPets(userPets.map(p => p.id === petId ? {
-                    id: updatedPet.id,
-                    name: updatedPet.name,
-                    species: updatedPet.species,
-                    image: updatedPet.image,
-                  } : p));
+                  setUserPets(userPets.map(p => p.id === petId ? updatedPet : p));
                 }
               } catch (error) {
                 console.error('Error updating pet:', error);
@@ -581,14 +629,37 @@ const App: React.FC = () => {
         />
       );
       case 'grooming': return <Grooming
-        onBack={() => setCurrentView('home')}
+        onBack={() => {
+          setReschedulingBooking(null);
+          setOldSchedule(null);
+          setCurrentView('home');
+        }}
         pets={userPets}
         userId={userId}
         defaultAddress={userAddress}
-        onProceedToCheckout={(bookingData) => {
-          setPendingBookingData(bookingData);
-          setCurrentView('checkout');
+        onProceedToCheckout={async (bookingData) => {
+          // Check if we're rescheduling
+          if (reschedulingBooking) {
+            try {
+              const { groomingService } = await import('./services/api');
+              const updatedBooking = await groomingService.rescheduleGroomingBooking(
+                reschedulingBooking.id,
+                bookingData.date,
+                bookingData.time
+              );
+              setLastCreatedBooking(updatedBooking);
+              setReschedulingBooking(null);
+              setCurrentView('reschedule-confirmation');
+            } catch (error) {
+              console.error('Error rescheduling grooming booking:', error);
+              alert('Failed to reschedule booking. Please try again.');
+            }
+          } else {
+            setPendingBookingData(bookingData);
+            setCurrentView('checkout');
+          }
         }}
+        reschedulingBooking={reschedulingBooking}
       />;
       case 'shop': return <Marketplace onBack={() => setCurrentView('home')} onCartClick={() => setCurrentView('shopping-cart')} userId={userId} initialCategory={marketplaceFilter} onHomeClick={() => setCurrentView('home')} onVisitsClick={() => setCurrentView('bookings-overview')} onProfileClick={() => setCurrentView('profile')} />;
       case 'bookings-overview': return (
@@ -606,37 +677,125 @@ const App: React.FC = () => {
           }}
           onProfileClick={() => setCurrentView('profile')}
           onPetsClick={() => setCurrentView('my-pets')}
+          onReschedule={(booking) => {
+            // Store the booking being rescheduled and old schedule
+            setReschedulingBooking(booking);
+            setOldSchedule({ date: booking.date, time: booking.time });
+            // Navigate to appropriate booking page based on booking type
+            if (booking.service_type === 'consultation') {
+              if (booking.booking_type === 'online') {
+                setCurrentView('online-consult-booking');
+              } else {
+                setCurrentView('home-consult-booking');
+              }
+            } else if (booking.service_type === 'grooming') {
+              setCurrentView('grooming');
+            }
+          }}
           userId={userId}
         />
       );
-      case 'booking-details': return <BookingDetails onBack={() => setCurrentView('bookings-overview')} booking={selectedBooking} userId={userId} onCartClick={() => setCurrentView('shopping-cart')} />;
+      case 'booking-details': return (
+        <BookingDetails
+          onBack={() => setCurrentView('bookings-overview')}
+          booking={selectedBooking}
+          userId={userId}
+          onCartClick={() => setCurrentView('shopping-cart')}
+          onReschedule={(booking) => {
+            // Store the booking being rescheduled and old schedule
+            setReschedulingBooking(booking);
+            setOldSchedule({ date: booking.date, time: booking.time });
+            // Navigate to appropriate booking page based on booking type
+            if (booking.service_type === 'consultation') {
+              if (booking.booking_type === 'online') {
+                setCurrentView('online-consult-booking');
+              } else {
+                setCurrentView('home-consult-booking');
+              }
+            } else if (booking.service_type === 'grooming') {
+              setCurrentView('grooming');
+            }
+          }}
+        />
+      );
       case 'online-consult-booking': return <OnlineConsultBooking
         pets={userPets}
-        onBack={() => setCurrentView('home')}
+        onBack={() => {
+          setReschedulingBooking(null); // Clear reschedule mode
+          setOldSchedule(null);
+          setCurrentView('home');
+        }}
         onBook={() => setCurrentView('checkout')}
         userId={userId}
-        onProceedToCheckout={(bookingData) => {
-          setPendingBookingData(bookingData);
-          setCurrentView('checkout');
+        onProceedToCheckout={async (bookingData) => {
+          // Check if we're rescheduling an existing booking
+          if (reschedulingBooking) {
+            try {
+              const { bookingService } = await import('./services/api');
+              const updatedBooking = await bookingService.rescheduleBooking(
+                reschedulingBooking.id,
+                bookingData.date,
+                bookingData.time
+              );
+              setLastCreatedBooking(updatedBooking);
+              setReschedulingBooking(null);
+              setCurrentView('reschedule-confirmation');
+            } catch (error) {
+              console.error('Error rescheduling booking:', error);
+              alert('Failed to reschedule booking. Please try again.');
+            }
+          } else {
+            setPendingBookingData(bookingData);
+            setCurrentView('checkout');
+          }
         }}
+        reschedulingBooking={reschedulingBooking}
       />;
       case 'home-consult-booking': return <HomeConsultBooking
         pets={userPets}
-        onBack={() => setCurrentView('home')}
+        onBack={() => {
+          setReschedulingBooking(null);
+          setOldSchedule(null);
+          setCurrentView('home');
+        }}
         onBook={() => setCurrentView('checkout')}
         userId={userId}
         defaultAddress={userAddress}
-        onProceedToCheckout={(bookingData) => {
-          setPendingBookingData(bookingData);
-          setCurrentView('checkout');
+        onProceedToCheckout={async (bookingData) => {
+          // Check if we're rescheduling
+          if (reschedulingBooking) {
+            try {
+              const { bookingService } = await import('./services/api');
+              const updatedBooking = await bookingService.rescheduleBooking(
+                reschedulingBooking.id,
+                bookingData.date,
+                bookingData.time
+              );
+              setLastCreatedBooking(updatedBooking);
+              setReschedulingBooking(null);
+              setCurrentView('reschedule-confirmation');
+            } catch (error) {
+              console.error('Error rescheduling booking:', error);
+              alert('Failed to reschedule booking. Please try again.');
+            }
+          } else {
+            setPendingBookingData(bookingData);
+            setCurrentView('checkout');
+          }
         }}
+        reschedulingBooking={reschedulingBooking}
       />;
       case 'checkout': return <Checkout
         onBack={() => {
           // Go back to the appropriate booking page
-          if (pendingBookingData?.type === 'grooming') {
+          // Clear pending booking data so changes made in booking page will be reflected
+          const bookingType = pendingBookingData?.type;
+          const isOnline = pendingBookingData?.bookingType === 'online';
+          setPendingBookingData(null);
+
+          if (bookingType === 'grooming') {
             setCurrentView('grooming');
-          } else if (pendingBookingData?.bookingType === 'online') {
+          } else if (isOnline) {
             setCurrentView('online-consult-booking');
           } else {
             setCurrentView('home-consult-booking');
@@ -805,6 +964,21 @@ const App: React.FC = () => {
       case 'order-details-page': return <OrderDetailsPage onBack={() => setCurrentView('orders-history')} onHomeClick={() => setCurrentView('home')} onVisitsClick={() => setCurrentView('bookings-overview')} onShopClick={() => setCurrentView('shop')} onProfileClick={() => setCurrentView('profile')} userId={userId} orderId={selectedOrderId} />;
       case 'my-pets': return <MyPets pets={userPets} onBack={() => setCurrentView('profile')} onAddPet={() => setCurrentView('add-pet')} onEditPet={(petId) => { setSelectedPetId(petId); setCurrentView('edit-pet'); }} onDeletePet={async (petId) => { try { await petService.deletePet(petId); setUserPets(userPets.filter(p => p.id !== petId)); } catch (error) { console.error('Error deleting pet:', error); alert('Failed to delete pet. Please try again.'); } }} onHomeClick={() => setCurrentView('home')} onVisitsClick={() => setCurrentView('bookings-overview')} onShopClick={() => setCurrentView('shop')} onProfileClick={() => setCurrentView('profile')} />;
       case 'personal-information': return <PersonalInformation onBack={() => setCurrentView('profile')} onHomeClick={() => setCurrentView('home')} onVisitsClick={() => setCurrentView('bookings-overview')} onShopClick={() => setCurrentView('shop')} onProfileClick={() => setCurrentView('profile')} userName={userName} userEmail={userEmail} userPhone={userPhone} userId={userId} onUserUpdate={(name, email, phone) => { setUserName(name); setUserEmail(email); setUserPhone(phone); }} />;
+      case 'reschedule-confirmation': return (
+        <RescheduleConfirmation
+          onBackHome={() => {
+            setOldSchedule(null);
+            setCurrentView('home');
+          }}
+          onViewAppointments={() => {
+            setOldSchedule(null);
+            setCurrentView('bookings-overview');
+          }}
+          booking={lastCreatedBooking}
+          oldDate={oldSchedule?.date || ''}
+          oldTime={oldSchedule?.time || ''}
+        />
+      );
 
       // Doctor Portal Routes
       case 'doctor-login': return <DoctorLogin onBack={() => setCurrentView('onboarding')} onGroomingStoreLogin={() => setCurrentView('grooming-store-login')} onLoginSuccess={async () => {
@@ -830,6 +1004,16 @@ const App: React.FC = () => {
           onAvailability={() => setCurrentView('doctor-availability')}
           onFeeManagement={() => setCurrentView('doctor-fee-management')}
           onConsultations={() => setCurrentView('doctor-consultations')}
+          onManageOrders={() => setCurrentView('admin-order-management')}
+          onManageProducts={() => setCurrentView('admin-shop-products')}
+          onLogout={async () => {
+            // Sign out from Supabase
+            await supabase.auth.signOut();
+            // Reset doctor state
+            setDoctorId(null);
+            setIsDoctorMode(false);
+            setCurrentView('doctor-login');
+          }}
         />
       );
       case 'doctor-profile-setup': return <DoctorProfileSetup onBack={() => setCurrentView('doctor-dashboard')} doctorId={doctorId} />;
@@ -864,7 +1048,11 @@ const App: React.FC = () => {
           onBookings={() => setCurrentView('grooming-store-bookings')}
           onPackages={() => setCurrentView('grooming-store-management')}
           onStoreSettings={() => setCurrentView('grooming-store-management')}
-          onLogout={() => {
+          onManageOrders={() => setCurrentView('admin-order-management')}
+          onManageProducts={() => setCurrentView('admin-shop-products')}
+          onLogout={async () => {
+            // Sign out from Supabase
+            await supabase.auth.signOut();
             // Reset grooming store state
             setGroomingStoreId(null);
             setIsGroomingStoreMode(false);
@@ -875,13 +1063,219 @@ const App: React.FC = () => {
       case 'grooming-store-bookings': return <GroomingStoreBookings storeId={groomingStoreId} onBack={() => setCurrentView('grooming-store-dashboard')} />;
       case 'grooming-store-management': return <GroomingStoreManagement storeId={groomingStoreId} onBack={() => setCurrentView('grooming-store-dashboard')} />;
 
+      // Admin portal routes
+      case 'admin-login': return <Login onNext={async (name) => {
+        // After admin login, verify admin status and load admin profile
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { adminAuthService } = await import('./services/adminApi');
+            const adminProfile = await adminAuthService.getAdminProfile(user.id);
+            if (adminProfile) {
+              setAdminId(adminProfile.id);
+              setIsAdminMode(true);
+              setCurrentView('admin-dashboard');
+            } else {
+              alert('You do not have admin access');
+              await supabase.auth.signOut();
+            }
+          }
+        } catch (error) {
+          console.error('Error loading admin profile:', error);
+          alert('Failed to load admin profile');
+        }
+      }} />;
+
+      case 'admin-dashboard': return (
+        <AdminDashboard
+          adminId={adminId}
+          onCustomerManagement={() => setCurrentView('admin-customers')}
+          onDoctorManagement={() => setCurrentView('admin-doctors-management')}
+          onShopManagement={() => setCurrentView('admin-shop-products')}
+          onAdminUsers={() => setCurrentView('admin-users-management')}
+          onSellerApprovals={() => setCurrentView('admin-seller-approvals')}
+          onOrderManagement={() => setCurrentView('admin-order-management')}
+          onSettlementManagement={() => setCurrentView('admin-settlements')}
+          onMarginManagement={() => setCurrentView('admin-margin-management')}
+          onNotifications={() => setCurrentView('admin-notifications')}
+          onLogout={async () => {
+            await supabase.auth.signOut();
+            setAdminId(null);
+            setIsAdminMode(false);
+            setCurrentView('admin-login');
+          }}
+        />
+      );
+
+      case 'admin-notifications': return (
+        <AdminNotifications
+          onBack={() => setCurrentView('admin-dashboard')}
+        />
+      );
+
+      case 'admin-customers': return (
+        <CustomerManagement
+          onBack={() => setCurrentView('admin-dashboard')}
+          onCustomerSelect={(customerId) => {
+            setSelectedCustomerId(customerId);
+            setCurrentView('admin-customer-details');
+          }}
+          onAdminUsers={() => setCurrentView('admin-users-management')}
+          onDoctors={() => setCurrentView('admin-doctors-management')}
+          onShopProducts={() => setCurrentView('admin-shop-products')}
+        />
+      );
+
+      case 'admin-customer-details': return selectedCustomerId ? (
+        <UserDetails
+          onBack={() => {
+            setSelectedCustomerId(null);
+            setCurrentView('admin-customers');
+          }}
+          userId={selectedCustomerId}
+          currentAdminId={adminId || ''}
+        />
+      ) : null;
+
+      case 'admin-users-management': return (
+        <AdminUsersManagement
+          onBack={() => setCurrentView('admin-dashboard')}
+          currentAdminId={adminId || ''}
+        />
+      );
+
+      case 'admin-doctors-management': return (
+        <DoctorManagement
+          onBack={() => setCurrentView('admin-dashboard')}
+          currentAdminId={adminId || ''}
+        />
+      );
+
+      case 'admin-shop-products': return (
+        <ShopProductManagement
+          onBack={() => {
+            if (isAdminMode) setCurrentView('admin-dashboard');
+            else if (isDoctorMode) setCurrentView('doctor-dashboard');
+            else if (isGroomingStoreMode) setCurrentView('grooming-store-dashboard');
+            else setCurrentView('home');
+          }}
+          onCreateProduct={() => {
+            setSelectedProductId(null);
+            setCurrentView('admin-create-product');
+          }}
+          onCreateGroupedProduct={() => setCurrentView('admin-create-grouped-product')}
+          onBulkImport={() => setCurrentView('admin-bulk-import')}
+          onEditProduct={(productId) => {
+            setSelectedProductId(productId);
+            setCurrentView('admin-edit-product');
+          }}
+          onManageVariations={(productId) => {
+            setSelectedProductId(productId);
+            setCurrentView('admin-product-variations');
+          }}
+          sellerId={isAdminMode ? undefined : (doctorId || groomingStoreId || undefined)}
+        />
+      );
+
+      case 'admin-create-product': return (
+        <AdminCreateProduct
+          onBack={() => setCurrentView('admin-shop-products')}
+          onSuccess={() => setCurrentView('admin-shop-products')}
+        />
+      );
+
+      case 'admin-edit-product': return selectedProductId ? (
+        <AdminCreateProduct
+          onBack={() => {
+            setSelectedProductId(null);
+            setCurrentView('admin-shop-products');
+          }}
+          onSuccess={() => {
+            setSelectedProductId(null);
+            setCurrentView('admin-shop-products');
+          }}
+          editProductId={selectedProductId}
+        />
+      ) : null;
+
+      case 'admin-create-grouped-product': return (
+        <AdminCreateGroupedProduct
+          onBack={() => setCurrentView('admin-shop-products')}
+          onSuccess={() => setCurrentView('admin-shop-products')}
+        />
+      );
+
+      case 'admin-product-variations': return selectedProductId ? (
+        <AdminProductVariations
+          onBack={() => {
+            setSelectedProductId(null);
+            setCurrentView('admin-shop-products');
+          }}
+          productId={selectedProductId}
+        />
+      ) : null;
+
+      case 'admin-bulk-import': return (
+        <AdminBulkImport
+          onBack={() => setCurrentView('admin-shop-products')}
+          onSuccess={() => setCurrentView('admin-shop-products')}
+        />
+      );
+
+      case 'admin-seller-approvals': return adminId ? (
+        <SellerApprovalManagement
+          onBack={() => setCurrentView('admin-dashboard')}
+          adminId={adminId}
+        />
+      ) : null;
+
+      case 'admin-order-management': return (
+        <OrderManagement
+          onBack={() => {
+            if (isAdminMode) setCurrentView('admin-dashboard');
+            else if (isDoctorMode) setCurrentView('doctor-dashboard');
+            else if (isGroomingStoreMode) setCurrentView('grooming-store-dashboard');
+            else setCurrentView('home');
+          }}
+          isAdmin={isAdminMode}
+          sellerId={isAdminMode ? undefined : (doctorId || groomingStoreId || undefined)}
+        />
+      );
+
+      case 'admin-settlements': return (
+        <AdminSettlementManagement
+          onBack={() => setCurrentView('admin-dashboard')}
+        />
+      );
+      
+      case 'admin-margin-management': return (
+        <AdminMarginManagement
+          onBack={() => setCurrentView('admin-dashboard')}
+        />
+      );
+
       default: return <Home pets={userPets} onServiceClick={() => { }} onShopClick={() => { }} onBookingsClick={() => { }} onPlusClick={() => { }} onProfileClick={() => { }} />;
     }
   };
 
   return (
     <div className="max-w-md mx-auto h-screen relative bg-background-light overflow-hidden flex flex-col font-body shadow-2xl">
-      {renderView()}
+      <React.Suspense fallback={
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      }>
+        {isLoadingUserData ? (
+          <div className="flex items-center justify-center h-full bg-background-light">
+            <div className="flex flex-col items-center gap-4">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+              <p className="text-slate-500 text-sm font-medium animate-pulse">Loading profile...</p>
+            </div>
+          </div>
+        ) : (
+          renderView()
+        )}
+      </React.Suspense>
       {showBookingPopup && (
         <NewBookingPopup
           onClose={() => setShowBookingPopup(false)}

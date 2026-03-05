@@ -18,6 +18,9 @@ export const groomingStoreAuthService = {
         await supabase.auth.signOut();
         throw new Error('This account is not registered as a grooming store.');
       }
+
+      // Return data with store profile - let UI handle approval status display
+      return { ...data, storeProfile };
     }
 
     return data;
@@ -113,7 +116,8 @@ export const groomingStoreBookingService = {
         *,
         pets (*),
         addresses (*),
-        grooming_packages:grooming_package_id (*)
+        grooming_packages:grooming_package_id (*),
+        users:user_id (id, name, email, phone)
       `)
       .eq('grooming_store_id', storeId)
       .eq('service_type', 'grooming')
@@ -149,7 +153,8 @@ export const groomingStoreBookingService = {
         *,
         pets (*),
         addresses (*),
-        grooming_packages:grooming_package_id (*)
+        grooming_packages:grooming_package_id (*),
+        users:user_id (id, name, email, phone)
       `)
       .eq('id', bookingId)
       .single();
@@ -277,6 +282,111 @@ export const groomingStorePackageService = {
       .eq('id', packageId);
 
     if (error) throw error;
+  }
+};
+
+// Grooming Store Time Slot Management
+export const groomingStoreTimeSlotService = {
+  async getStoreTimeSlots(storeId: string) {
+    const { data, error } = await supabase
+      .from('grooming_time_slots')
+      .select('*')
+      .eq('grooming_store_id', storeId)
+      .order('time_slot', { ascending: true });
+
+    if (error) throw error;
+    return data;
+  },
+
+  async createTimeSlot(storeId: string, timeSlot: string, isActive: boolean = true, weekdays: number[] = [0,1,2,3,4,5,6]) {
+    const { data, error } = await supabase
+      .from('grooming_time_slots')
+      .insert({
+        grooming_store_id: storeId,
+        time_slot: timeSlot,
+        is_active: isActive,
+        weekdays: weekdays,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async updateTimeSlot(slotId: string, updates: {
+    time_slot?: string;
+    is_active?: boolean;
+    weekdays?: number[];
+  }) {
+    const { data, error } = await supabase
+      .from('grooming_time_slots')
+      .update(updates)
+      .eq('id', slotId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async deleteTimeSlot(slotId: string) {
+    const { error } = await supabase
+      .from('grooming_time_slots')
+      .delete()
+      .eq('id', slotId);
+
+    if (error) throw error;
+  },
+
+  async getAvailableTimeSlots(storeId: string, date: string) {
+    // Get all active time slots for the store
+    const { data: timeSlots, error: slotsError } = await supabase
+      .from('grooming_time_slots')
+      .select('time_slot, weekdays')
+      .eq('grooming_store_id', storeId)
+      .eq('is_active', true)
+      .order('time_slot', { ascending: true });
+
+    if (slotsError) throw slotsError;
+
+    // Get the day of week for the selected date (0=Sunday, 1=Monday, ..., 6=Saturday)
+    // Parse date string properly to avoid timezone issues
+    const [year, month, day] = date.split('-').map(Number);
+    const selectedDate = new Date(year, month - 1, day);
+    const dayOfWeek = selectedDate.getDay();
+
+    console.log('[getAvailableTimeSlots] Date:', date, 'Day of week:', dayOfWeek, ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeek]);
+
+    // Filter time slots by weekday availability
+    const slotsForDay = timeSlots?.filter(slot => {
+      if (!slot.weekdays || slot.weekdays.length === 0) {
+        // If no weekdays specified, available all days
+        console.log('[getAvailableTimeSlots] Slot', slot.time_slot, 'has no weekdays restriction - including');
+        return true;
+      }
+      const isAvailable = slot.weekdays.includes(dayOfWeek);
+      console.log('[getAvailableTimeSlots] Slot', slot.time_slot, 'weekdays:', slot.weekdays, 'includes', dayOfWeek, '?', isAvailable);
+      return isAvailable;
+    }) || [];
+
+    console.log('[getAvailableTimeSlots] Total slots:', timeSlots?.length, 'Slots for', ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeek], ':', slotsForDay.length);
+
+    // Get booked time slots for the specific date
+    const { data: bookings, error: bookingsError } = await supabase
+      .from('bookings')
+      .select('time')
+      .eq('grooming_store_id', storeId)
+      .eq('date', date)
+      .in('status', ['pending', 'upcoming']);
+
+    if (bookingsError) throw bookingsError;
+
+    // Filter out booked time slots
+    const bookedTimes = new Set(bookings?.map(b => b.time) || []);
+    const availableSlots = slotsForDay.filter(slot => !bookedTimes.has(slot.time_slot));
+
+    return availableSlots.map(slot => slot.time_slot);
   }
 };
 

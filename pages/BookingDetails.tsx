@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { prescriptionProductService } from '../services/doctorApi';
-import { cartService } from '../services/api';
+import { cartService, bookingService } from '../services/api';
 import type { PrescriptionProduct } from '../types';
 
 interface Booking {
@@ -19,6 +19,8 @@ interface Booking {
   package_type?: string;
   contact_number?: string;
   prescription_url?: string;
+  medical_notes?: string; // Doctor's medical notes for consultation
+  doctor_id?: string; // Doctor ID for rating feature
   pets?: {
     name: string;
     species: string;
@@ -57,6 +59,7 @@ interface Props {
   booking?: Booking | null;
   userId?: string;
   onCartClick?: () => void;
+  onReschedule?: (booking: Booking) => void;
 }
 
 interface Doctor {
@@ -67,7 +70,7 @@ interface Doctor {
   profile_photo_url?: string;
 }
 
-const BookingDetails: React.FC<Props> = ({ onBack, booking, userId, onCartClick }) => {
+const BookingDetails: React.FC<Props> = ({ onBack, booking, userId, onCartClick, onReschedule }) => {
   const [prescriptionProducts, setPrescriptionProducts] = useState<PrescriptionProduct[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [addingToCart, setAddingToCart] = useState<{ [key: string]: boolean }>({});
@@ -350,6 +353,45 @@ const BookingDetails: React.FC<Props> = ({ onBack, booking, userId, onCartClick 
     }
   };
 
+  const handleCancelBooking = async () => {
+    if (!booking) return;
+
+    // Get booking creation time to calculate hours difference
+    const { supabase } = await import('../lib/supabase');
+    const { data: bookingData } = await supabase
+      .from('bookings')
+      .select('created_at')
+      .eq('id', booking.id)
+      .single();
+
+    if (!bookingData) {
+      alert('Unable to fetch booking details');
+      return;
+    }
+
+    const createdAt = new Date((bookingData as any).created_at);
+    const now = new Date();
+    const hoursDifference = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+
+    let confirmMessage = '';
+    if (hoursDifference <= 3) {
+      confirmMessage = 'This booking was created within the last 3 hours. Cancelling will permanently delete the booking. Are you sure?';
+    } else {
+      confirmMessage = 'Are you sure you want to cancel this booking?';
+    }
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      const result = await bookingService.cancelBooking(booking.id);
+      alert(result.message);
+      onBack(); // Go back to bookings list after cancellation
+    } catch (error) {
+      console.error('Error cancelling booking:', error);
+      alert('Failed to cancel booking. Please try again.');
+    }
+  };
+
   // If no booking data, show static mock data
   if (!booking) {
     return (
@@ -492,7 +534,10 @@ const BookingDetails: React.FC<Props> = ({ onBack, booking, userId, onCartClick 
               <span className="material-symbols-outlined font-black">edit_calendar</span>
               Reschedule
             </button>
-            <button className="w-full py-5 bg-transparent text-gray-400 font-black text-base rounded-[28px] border border-gray-100 active:scale-[0.98] transition-all flex items-center justify-center gap-3">
+            <button
+              onClick={handleCancelBooking}
+              className="w-full py-5 bg-transparent text-red-500 font-black text-base rounded-[28px] border border-red-200 hover:bg-red-50 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+            >
               <span className="material-symbols-outlined font-black text-[22px]">cancel</span>
               Cancel Booking
             </button>
@@ -726,6 +771,37 @@ const BookingDetails: React.FC<Props> = ({ onBack, booking, userId, onCartClick 
                     <p className="text-xs text-gray-400 font-bold">Location not available</p>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Medical Notes - Only show for completed consultations */}
+        {booking.status === 'completed' && booking.service_type === 'consultation' && booking.medical_notes && (
+          <div className="bg-white rounded-[40px] p-7 shadow-sm border border-gray-100">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-lg font-black text-gray-900 tracking-tight font-display">Medical Notes</h3>
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">
+                  From your consultation
+                </p>
+              </div>
+              <span className="material-symbols-outlined text-primary text-2xl">clinical_notes</span>
+            </div>
+
+            <div className="bg-blue-50 rounded-3xl p-5 border border-blue-100">
+              <div className="flex items-start gap-4">
+                <div className="bg-blue-100 p-3 rounded-2xl shrink-0">
+                  <span className="material-symbols-outlined text-blue-600 text-2xl">stethoscope</span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-[11px] text-blue-600 font-black uppercase tracking-[0.2em] mb-2">
+                    Doctor's Notes
+                  </p>
+                  <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+                    {booking.medical_notes}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -1094,11 +1170,17 @@ const BookingDetails: React.FC<Props> = ({ onBack, booking, userId, onCartClick 
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <button className="w-full py-5 bg-primary text-white font-black text-base rounded-[28px] shadow-2xl shadow-primary/30 active:scale-[0.98] transition-all flex items-center justify-center gap-3">
+            <button
+              onClick={() => onReschedule && booking && onReschedule(booking)}
+              className="w-full py-5 bg-primary text-white font-black text-base rounded-[28px] shadow-2xl shadow-primary/30 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+            >
               <span className="material-symbols-outlined font-black">edit_calendar</span>
               Reschedule
             </button>
-            <button className="w-full py-5 bg-transparent text-gray-400 font-black text-base rounded-[28px] border border-gray-100 active:scale-[0.98] transition-all flex items-center justify-center gap-3">
+            <button
+              onClick={handleCancelBooking}
+              className="w-full py-5 bg-transparent text-red-500 font-black text-base rounded-[28px] border border-red-200 hover:bg-red-50 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+            >
               <span className="material-symbols-outlined font-black text-[22px]">cancel</span>
               Cancel Booking
             </button>

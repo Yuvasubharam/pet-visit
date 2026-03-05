@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { groomingStoreAuthService, groomingStorePackageService } from '../services/groomingStoreApi';
+import { groomingStoreAuthService, groomingStorePackageService, groomingStoreTimeSlotService } from '../services/groomingStoreApi';
 import StoreLocationPicker from '../components/StoreLocationPicker';
+import { GroomingTimeSlot } from '../types';
 
 interface GroomingStoreManagementProps {
   storeId: string | null;
@@ -11,7 +12,34 @@ const GroomingStoreManagement: React.FC<GroomingStoreManagementProps> = ({ store
   const [storeProfile, setStoreProfile] = useState<any>(null);
   const [packages, setPackages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'packages' | 'info'>('packages');
+  const [activeTab, setActiveTab] = useState<'packages' | 'info' | 'timeslots'>('packages');
+
+  // Time slots state
+  const [timeSlots, setTimeSlots] = useState<GroomingTimeSlot[]>([]);
+  const [showAddTimeSlot, setShowAddTimeSlot] = useState(false);
+  const [newTimeSlot, setNewTimeSlot] = useState('');
+  const [selectedTimeSlots, setSelectedTimeSlots] = useState<string[]>([]); // For multiple selection
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([0,1,2,3,4,5,6]);
+  const [editingTimeSlot, setEditingTimeSlot] = useState<GroomingTimeSlot | null>(null);
+
+  const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  // Helper function to sort time slots in chronological order (AM to PM)
+  const sortTimeSlots = (slots: GroomingTimeSlot[]) => {
+    return [...slots].sort((a, b) => {
+      const parseTime = (timeStr: string) => {
+        const [time, period] = timeStr.split(' ');
+        let [hours, minutes] = time.split(':').map(Number);
+
+        if (period === 'PM' && hours !== 12) hours += 12;
+        if (period === 'AM' && hours === 12) hours = 0;
+
+        return hours * 60 + minutes;
+      };
+
+      return parseTime(a.time_slot) - parseTime(b.time_slot);
+    });
+  };
 
   // Store info form
   const [storeName, setStoreName] = useState('');
@@ -64,6 +92,10 @@ const GroomingStoreManagement: React.FC<GroomingStoreManagementProps> = ({ store
       // Load packages
       const pkgs = await groomingStorePackageService.getStorePackages(storeId);
       setPackages(pkgs || []);
+
+      // Load time slots
+      const slots = await groomingStoreTimeSlotService.getStoreTimeSlots(storeId);
+      setTimeSlots(slots || []);
     } catch (error) {
       console.error('Error loading store data:', error);
     } finally {
@@ -173,6 +205,117 @@ const GroomingStoreManagement: React.FC<GroomingStoreManagementProps> = ({ store
     setPackageDuration(pkg.duration_minutes?.toString() || '60');
   };
 
+  // Time slot management functions
+  const handleAddTimeSlot = async () => {
+    if (!storeId) return;
+
+    // Determine which time slots to create
+    const timeSlotsToCreate = selectedTimeSlots.length > 0
+      ? selectedTimeSlots
+      : newTimeSlot.trim() ? [newTimeSlot.trim()] : [];
+
+    if (timeSlotsToCreate.length === 0) {
+      alert('Please enter a time slot or select from quick add options');
+      return;
+    }
+
+    if (selectedWeekdays.length === 0) {
+      alert('Please select at least one weekday');
+      return;
+    }
+
+    try {
+      if (editingTimeSlot) {
+        // Update existing time slot (single update only)
+        await groomingStoreTimeSlotService.updateTimeSlot(editingTimeSlot.id, {
+          time_slot: newTimeSlot.trim(),
+          weekdays: selectedWeekdays,
+        });
+        alert('Time slot updated successfully!');
+      } else {
+        // Create multiple time slots
+        let successCount = 0;
+        let failCount = 0;
+        const errors: string[] = [];
+
+        for (const timeSlot of timeSlotsToCreate) {
+          try {
+            await groomingStoreTimeSlotService.createTimeSlot(storeId, timeSlot, true, selectedWeekdays);
+            successCount++;
+          } catch (error: any) {
+            failCount++;
+            errors.push(`${timeSlot}: ${error.message || 'Failed'}`);
+          }
+        }
+
+        // Show summary
+        if (successCount > 0 && failCount === 0) {
+          alert(`Successfully added ${successCount} time slot${successCount > 1 ? 's' : ''}!`);
+        } else if (successCount > 0 && failCount > 0) {
+          alert(`Added ${successCount} time slot${successCount > 1 ? 's' : ''}, but ${failCount} failed:\n${errors.join('\n')}`);
+        } else {
+          alert(`Failed to add time slots:\n${errors.join('\n')}`);
+        }
+      }
+
+      setNewTimeSlot('');
+      setSelectedTimeSlots([]);
+      setSelectedWeekdays([0,1,2,3,4,5,6]);
+      setEditingTimeSlot(null);
+      setShowAddTimeSlot(false);
+      await loadStoreData();
+    } catch (error) {
+      console.error('Error saving time slot:', error);
+      alert('Failed to save time slot.');
+    }
+  };
+
+  const handleToggleTimeSlot = async (slotId: string, currentStatus: boolean) => {
+    try {
+      await groomingStoreTimeSlotService.updateTimeSlot(slotId, { is_active: !currentStatus });
+      await loadStoreData();
+    } catch (error) {
+      console.error('Error toggling time slot:', error);
+      alert('Failed to update time slot');
+    }
+  };
+
+  const handleDeleteTimeSlot = async (slotId: string) => {
+    if (!confirm('Are you sure you want to delete this time slot?')) return;
+
+    try {
+      await groomingStoreTimeSlotService.deleteTimeSlot(slotId);
+      alert('Time slot deleted successfully!');
+      await loadStoreData();
+    } catch (error) {
+      console.error('Error deleting time slot:', error);
+      alert('Failed to delete time slot');
+    }
+  };
+
+  const handleEditTimeSlot = (slot: GroomingTimeSlot) => {
+    setEditingTimeSlot(slot);
+    setNewTimeSlot(slot.time_slot);
+    setSelectedWeekdays(slot.weekdays || [0,1,2,3,4,5,6]);
+    setShowAddTimeSlot(true);
+  };
+
+  const toggleWeekday = (day: number) => {
+    setSelectedWeekdays(prev =>
+      prev.includes(day)
+        ? prev.filter(d => d !== day)
+        : [...prev, day].sort()
+    );
+  };
+
+  const toggleTimeSlotSelection = (timeSlot: string) => {
+    setSelectedTimeSlots(prev =>
+      prev.includes(timeSlot)
+        ? prev.filter(t => t !== timeSlot)
+        : [...prev, timeSlot]
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-50">
@@ -206,7 +349,7 @@ const GroomingStoreManagement: React.FC<GroomingStoreManagementProps> = ({ store
         <div className="flex gap-2">
           <button
             onClick={() => setActiveTab('packages')}
-            className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'packages'
                 ? 'bg-primary text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -215,8 +358,18 @@ const GroomingStoreManagement: React.FC<GroomingStoreManagementProps> = ({ store
             Packages
           </button>
           <button
+            onClick={() => setActiveTab('timeslots')}
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'timeslots'
+                ? 'bg-primary text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Time Slots
+          </button>
+          <button
             onClick={() => setActiveTab('info')}
-            className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'info'
                 ? 'bg-primary text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -229,7 +382,132 @@ const GroomingStoreManagement: React.FC<GroomingStoreManagementProps> = ({ store
 
       {/* Content */}
       <main className="flex-1 overflow-y-auto p-6 space-y-4 pb-24">
-        {activeTab === 'packages' ? (
+        {activeTab === 'timeslots' ? (
+          <>
+            {/* Add Time Slot Button */}
+            <button
+              onClick={() => setShowAddTimeSlot(true)}
+              className="w-full py-4 px-4 bg-primary hover:bg-primary-dark text-white font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined">schedule</span>
+              Add New Time Slot
+            </button>
+
+            {/* Info Card */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+              <span className="material-symbols-outlined text-blue-600 text-xl">info</span>
+              <div className="flex-1">
+                <p className="text-xs font-bold text-blue-900 mb-1">Time Slot Management</p>
+                <p className="text-xs text-blue-700">
+                  Configure your available time slots with specific days of the week. Customers will only see slots that are active and available for their selected date.
+                </p>
+              </div>
+            </div>
+
+            {/* Time Slots List */}
+            {timeSlots.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+                  <span className="material-symbols-outlined text-slate-400 text-4xl">schedule</span>
+                </div>
+                <p className="text-slate-600 font-medium">No time slots configured</p>
+                <p className="text-sm text-slate-400 mt-1">Add your first time slot to get started</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">
+                    Your Time Slots ({timeSlots.length})
+                  </h3>
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                    <span>Active</span>
+                    <div className="w-2 h-2 rounded-full bg-gray-400 ml-2"></div>
+                    <span>Inactive</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  {sortTimeSlots(timeSlots).map((slot) => {
+                      const slotWeekdays = slot.weekdays || [0,1,2,3,4,5,6];
+                      const isAllDays = slotWeekdays.length === 7;
+
+                      return (
+                        <div
+                          key={slot.id}
+                          className={`bg-white rounded-xl p-4 shadow-sm border-2 transition-all ${
+                            slot.is_active
+                              ? 'border-green-200 bg-green-50/30'
+                              : 'border-gray-200 bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className={`text-xl font-black ${
+                              slot.is_active ? 'text-slate-900' : 'text-slate-400'
+                            }`}>
+                              {slot.time_slot}
+                            </span>
+                            <div
+                              className={`w-3 h-3 rounded-full ${
+                                slot.is_active ? 'bg-green-500' : 'bg-gray-400'
+                              }`}
+                            />
+                          </div>
+
+                          {/* Weekdays Display */}
+                          <div className="mb-3 flex flex-wrap gap-1">
+                            {isAllDays ? (
+                              <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                All Days
+                              </span>
+                            ) : (
+                              weekdayNames.map((day, index) => (
+                                <span
+                                  key={index}
+                                  className={`text-xs font-bold px-2 py-1 rounded ${
+                                    slotWeekdays.includes(index)
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-slate-100 text-slate-400'
+                                  }`}
+                                >
+                                  {day}
+                                </span>
+                              ))
+                            )}
+                          </div>
+
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => handleEditTimeSlot(slot)}
+                              className="flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all bg-blue-100 text-blue-700 hover:bg-blue-200"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleToggleTimeSlot(slot.id, slot.is_active)}
+                              className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all ${
+                                slot.is_active
+                                  ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                                  : 'bg-green-100 text-green-700 hover:bg-green-200'
+                              }`}
+                            >
+                              {slot.is_active ? 'Disable' : 'Enable'}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTimeSlot(slot.id)}
+                              className="w-8 h-8 rounded-lg bg-red-100 hover:bg-red-200 flex items-center justify-center transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-red-600 text-sm">delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+          </>
+        ) : activeTab === 'packages' ? (
           <>
             {/* Add Package Button */}
             <button
@@ -354,6 +632,28 @@ const GroomingStoreManagement: React.FC<GroomingStoreManagementProps> = ({ store
                       : undefined
                   }
                 />
+
+                {/* Map Preview - Show current store location */}
+                {latitude && longitude && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Current Store Location on Map</p>
+                    <div className="rounded-xl overflow-hidden border-2 border-primary/20 shadow-md">
+                      <iframe
+                        src={`https://maps.google.com/maps?q=${latitude},${longitude}&t=&z=15&ie=UTF8&iwloc=&output=embed`}
+                        width="100%"
+                        height="250"
+                        style={{ border: 0 }}
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        title="Store Location Map"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 p-3 rounded-lg">
+                      <span className="material-symbols-outlined text-sm text-primary">info</span>
+                      <p>This is your clinic's location that customers will see</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Update Button */}
@@ -453,6 +753,151 @@ const GroomingStoreManagement: React.FC<GroomingStoreManagementProps> = ({ store
                 className="w-full py-4 bg-primary hover:bg-primary-dark text-white font-bold text-sm rounded-xl transition-all"
               >
                 {editingPackage ? 'Update Package' : 'Add Package'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Time Slot Modal */}
+      {showAddTimeSlot && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => {
+          setShowAddTimeSlot(false);
+          setEditingTimeSlot(null);
+          setNewTimeSlot('');
+          setSelectedWeekdays([0,1,2,3,4,5,6]);
+        }}>
+          <div
+            className="bg-white rounded-t-[32px] w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xl font-black text-slate-900">
+                {editingTimeSlot ? 'Edit Time Slot' : 'Add New Time Slot'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowAddTimeSlot(false);
+                  setEditingTimeSlot(null);
+                  setNewTimeSlot('');
+                  setSelectedTimeSlots([]);
+                  setSelectedWeekdays([0,1,2,3,4,5,6]);
+                }}
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"
+              >
+                <span className="material-symbols-outlined text-slate-700">close</span>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Time Slot *</label>
+                <input
+                  type="text"
+                  value={newTimeSlot}
+                  onChange={(e) => setNewTimeSlot(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all text-center text-lg font-bold"
+                  placeholder="e.g., 09:00 AM"
+                />
+                <p className="text-xs text-slate-500 mt-2">Use format: HH:MM AM/PM (e.g., 09:00 AM, 02:30 PM)</p>
+              </div>
+
+              {/* Quick Time Suggestions */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Quick Add (Multiple Selection)</p>
+                  {!editingTimeSlot && selectedTimeSlots.length > 0 && (
+                    <button
+                      onClick={() => setSelectedTimeSlots([])}
+                      className="text-xs font-bold text-red-600 hover:underline"
+                    >
+                      Clear Selected ({selectedTimeSlots.length})
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {['09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'].map((time) => (
+                    <button
+                      key={time}
+                      onClick={() => {
+                        if (editingTimeSlot) {
+                          // In edit mode, just set the single time slot
+                          setNewTimeSlot(time);
+                        } else {
+                          // In add mode, toggle selection for multiple slots
+                          toggleTimeSlotSelection(time);
+                        }
+                      }}
+                      className={`py-2 px-2 rounded-lg text-xs font-bold transition-all ${
+                        editingTimeSlot
+                          ? (newTimeSlot === time
+                              ? 'bg-primary text-white'
+                              : 'bg-slate-100 hover:bg-primary hover:text-white')
+                          : (selectedTimeSlots.includes(time)
+                              ? 'bg-primary text-white ring-2 ring-primary ring-offset-2'
+                              : 'bg-slate-100 hover:bg-slate-200')
+                      }`}
+                    >
+                      {time}
+                      {!editingTimeSlot && selectedTimeSlots.includes(time) && (
+                        <span className="ml-1">✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {!editingTimeSlot && selectedTimeSlots.length > 0 && (
+                  <p className="text-xs text-primary font-bold mt-2">
+                    {selectedTimeSlots.length} time slot{selectedTimeSlots.length > 1 ? 's' : ''} selected: {selectedTimeSlots.join(', ')}
+                  </p>
+                )}
+              </div>
+
+              {/* Weekday Selection */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Available Days *</label>
+                  <button
+                    onClick={() => setSelectedWeekdays(
+                      selectedWeekdays.length === 7 ? [] : [0,1,2,3,4,5,6]
+                    )}
+                    className="text-xs font-bold text-primary hover:underline"
+                  >
+                    {selectedWeekdays.length === 7 ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-7 gap-2">
+                  {weekdayNames.map((day, index) => (
+                    <button
+                      key={index}
+                      onClick={() => toggleWeekday(index)}
+                      className={`py-2 rounded-lg text-xs font-bold transition-all ${
+                        selectedWeekdays.includes(index)
+                          ? 'bg-primary text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  {selectedWeekdays.length === 0 && 'Please select at least one day'}
+                  {selectedWeekdays.length === 7 && 'Available all days of the week'}
+                  {selectedWeekdays.length > 0 && selectedWeekdays.length < 7 &&
+                    `Available on ${selectedWeekdays.length} day${selectedWeekdays.length > 1 ? 's' : ''}`
+                  }
+                </p>
+              </div>
+
+              <button
+                onClick={handleAddTimeSlot}
+                className="w-full py-4 bg-primary hover:bg-primary-dark text-white font-bold text-sm rounded-xl transition-all"
+              >
+                {editingTimeSlot
+                  ? 'Update Time Slot'
+                  : selectedTimeSlots.length > 0
+                    ? `Add ${selectedTimeSlots.length} Time Slot${selectedTimeSlots.length > 1 ? 's' : ''}`
+                    : 'Add Time Slot'}
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Address } from '../types';
 import { addressService, cartService, orderService } from '../services/api';
+import { adminSettingsService } from '../services/adminApi';
 import AddressForm from '../components/AddressForm';
 
 interface CartItemDisplay {
@@ -48,9 +49,25 @@ const ShopCheckout: React.FC<Props> = ({
   const [isLoadingAddresses, setIsLoadingAddresses] = useState(true);
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'cod'>('card');
+  const [marginPercentage, setMarginPercentage] = useState(0.15);
 
   const DELIVERY_FEE = 5.00;
   const DISCOUNT_PERCENTAGE = 0.1;
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      const margin = await adminSettingsService.getSetting('shop_margin_percentage');
+      if (margin !== null && margin !== undefined) {
+        setMarginPercentage(margin);
+      }
+    } catch (error) {
+      console.error('Error loading shop margin:', error);
+    }
+  };
 
   useEffect(() => {
     if (userId) {
@@ -87,15 +104,49 @@ const ShopCheckout: React.FC<Props> = ({
     try {
       setIsLoadingCart(true);
       const data = await cartService.getCartItems(userId);
-      const mappedItems = (data || []).map((item: any) => ({
-        cartId: item.id,
-        productId: item.product_id,
-        brand: item.products?.brand || 'Unknown',
-        name: item.products?.name || 'Product',
-        price: item.products?.price || 0,
-        quantity: item.quantity,
-        image: item.products?.image || ''
-      }));
+      console.log('ShopCheckout - Raw cart data:', data);
+
+      const mappedItems = (data || []).map((item: any) => {
+        const product = item.shop_products;
+        const variation = item.product_variations;
+
+        // Calculate price: variation sale_price > variation price_adjustment > product sale_price > product base_price
+        let price = 0;
+        if (variation?.sale_price) {
+          price = Number(variation.sale_price);
+        } else if (variation?.price_adjustment && product?.base_price) {
+          price = Number(product.base_price) + Number(variation.price_adjustment);
+        } else if (product?.sale_price) {
+          price = Number(product.sale_price);
+        } else if (product?.base_price) {
+          price = Number(product.base_price);
+        }
+
+        // Build name with variation if applicable
+        let displayName = product?.name || 'Product';
+        if (variation?.variation_value) {
+          displayName = `${displayName} - ${variation.variation_value}`;
+        }
+
+        console.log('ShopCheckout - Mapped item:', {
+          name: displayName,
+          price,
+          product,
+          variation
+        });
+
+        return {
+          cartId: item.id,
+          productId: item.product_id,
+          brand: product?.category || 'Unknown',
+          name: displayName,
+          price: price,
+          quantity: item.quantity,
+          image: product?.main_image || ''
+        };
+      });
+
+      console.log('ShopCheckout - Final mapped items:', mappedItems);
       setCartItems(mappedItems);
     } catch (error) {
       console.error('Error loading cart:', error);

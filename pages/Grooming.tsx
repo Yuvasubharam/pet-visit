@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Pet, GroomingPackage, Address } from '../types';
 import { groomingService, addressService } from '../services/api';
-import { groomingStorePackageService } from '../services/groomingStoreApi';
+import { groomingStorePackageService, groomingStoreTimeSlotService } from '../services/groomingStoreApi';
 import AddressForm from '../components/AddressForm';
 
 interface BookingData {
@@ -20,6 +20,9 @@ interface BookingData {
     contactNumber?: string;
     notes?: string;
     amount: number;
+    serviceFee?: number;
+    platformFee?: number;
+    totalAmount?: number;
     serviceName: string;
     groomingStoreId?: string;
     groomingStoreName?: string;
@@ -31,11 +34,17 @@ interface Props {
     userId?: string | null;
     defaultAddress?: Address;
     onProceedToCheckout?: (bookingData: BookingData) => void;
+    reschedulingBooking?: any; // Booking being rescheduled
 }
 
-const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onProceedToCheckout }) => {
-    const [selectedPet, setSelectedPet] = useState<string>(pets[0]?.id || '');
-    const [location, setLocation] = useState<'home' | 'clinic'>('home');
+const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onProceedToCheckout, reschedulingBooking }) => {
+    const [selectedPet, setSelectedPet] = useState<string>(
+        reschedulingBooking?.pet_id || pets[0]?.id || ''
+    );
+    const [location, setLocation] = useState<'home' | 'clinic'>(
+        reschedulingBooking?.booking_type === 'clinic' ? 'clinic' : 'home'
+    );
+    const [isRescheduling] = useState<boolean>(!!reschedulingBooking);
     const [selectedPackage, setSelectedPackage] = useState<string>('full');
     const [contactNumber, setContactNumber] = useState<string>('');
     const [groomingPackages, setGroomingPackages] = useState<GroomingPackage[]>([]);
@@ -49,6 +58,19 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
     const [groomingStores, setGroomingStores] = useState<any[]>([]);
     const [selectedStore, setSelectedStore] = useState<any>(null);
     const [storePackages, setStorePackages] = useState<any[]>([]);
+
+    // Date and Time selection
+    const today = new Date();
+    const dateSlots = Array.from({ length: 30 }, (_, i) => {
+        const date = new Date(today);
+        date.setDate(today.getDate() + i);
+        return date;
+    });
+    const [selectedDateIndex, setSelectedDateIndex] = useState(0);
+    const [selectedTime, setSelectedTime] = useState<string>('');
+    const [availableTimeSlots, setAvailableTimeSlots] = useState<string[]>([]);
+    const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
+    // Platform fee is collected from grooming stores, not users
 
     useEffect(() => {
         loadPackages();
@@ -64,6 +86,25 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
             loadStorePackages(selectedStore.id);
         }
     }, [selectedStore]);
+
+    useEffect(() => {
+        // Load available time slots when store or date changes
+        if (selectedStore && location === 'clinic') {
+            loadAvailableTimeSlots();
+        } else if (location === 'home') {
+            // For home visits, use default fallback if no store-specific slots
+            loadAvailableTimeSlots();
+        }
+
+        // Set up polling to refresh time slots every 30 seconds for real-time updates
+        const interval = setInterval(() => {
+            if (selectedStore || location === 'home') {
+                loadAvailableTimeSlots();
+            }
+        }, 30000); // 30 seconds
+
+        return () => clearInterval(interval);
+    }, [selectedStore, selectedDateIndex, location]);
 
     const loadPackages = async () => {
         try {
@@ -81,8 +122,17 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
         try {
             const stores = await groomingStorePackageService.getAllActiveStores();
             setGroomingStores(stores || []);
-            // Auto-select first store if available
-            if (stores && stores.length > 0) {
+
+            // If rescheduling, select the specific store from the booking
+            if (isRescheduling && reschedulingBooking?.grooming_store_id) {
+                const matchingStore = stores?.find((s: any) => s.id === reschedulingBooking.grooming_store_id);
+                if (matchingStore) {
+                    setSelectedStore(matchingStore);
+                } else {
+                    console.error('[Grooming] Could not find store for rescheduling:', reschedulingBooking.grooming_store_id);
+                }
+            } else if (stores && stores.length > 0) {
+                // Auto-select first store if available (normal booking)
                 setSelectedStore(stores[0]);
             }
         } catch (error) {
@@ -101,6 +151,91 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
         } catch (error) {
             console.error('Error loading store packages:', error);
         }
+    };
+
+    // Helper function to sort time slots in chronological order (AM to PM)
+    const sortTimeSlots = (slots: string[]) => {
+        return slots.sort((a, b) => {
+            const parseTime = (timeStr: string) => {
+                const [time, period] = timeStr.split(' ');
+                let [hours, minutes] = time.split(':').map(Number);
+
+                if (period === 'PM' && hours !== 12) hours += 12;
+                if (period === 'AM' && hours === 12) hours = 0;
+
+                return hours * 60 + minutes;
+            };
+
+            return parseTime(a) - parseTime(b);
+        });
+    };
+
+    const loadAvailableTimeSlots = async () => {
+        if (!selectedStore) {
+            // Default fallback time slots if no store selected
+            const defaultSlots = [
+                '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
+                '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'
+            ];
+            const sortedSlots = sortTimeSlots(defaultSlots);
+            setAvailableTimeSlots(sortedSlots);
+            if (!selectedTime) setSelectedTime(sortedSlots[0]);
+            return;
+        }
+
+        try {
+            setLoadingTimeSlots(true);
+            const selectedDate = dateSlots[selectedDateIndex];
+            const dateStr = selectedDate.toISOString().split('T')[0];
+
+            // Fetch available time slots for the store and date
+            const slots = await groomingStoreTimeSlotService.getAvailableTimeSlots(
+                selectedStore.id,
+                dateStr
+            );
+
+            if (slots && slots.length > 0) {
+                const sortedSlots = sortTimeSlots(slots);
+                setAvailableTimeSlots(sortedSlots);
+                // Auto-select first slot if current selection is not available
+                if (!selectedTime || !sortedSlots.includes(selectedTime)) {
+                    setSelectedTime(sortedSlots[0]);
+                }
+            } else {
+                // Fallback to default slots if store has no configured slots
+                const defaultSlots = [
+                    '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
+                    '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'
+                ];
+                const sortedSlots = sortTimeSlots(defaultSlots);
+                setAvailableTimeSlots(sortedSlots);
+                if (!selectedTime) setSelectedTime(sortedSlots[0]);
+            }
+        } catch (error) {
+            console.error('Error loading time slots:', error);
+            // Fallback to default slots on error
+            const defaultSlots = [
+                '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
+                '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'
+            ];
+            const sortedSlots = sortTimeSlots(defaultSlots);
+            setAvailableTimeSlots(sortedSlots);
+            if (!selectedTime) setSelectedTime(sortedSlots[0]);
+        } finally {
+            setLoadingTimeSlots(false);
+        }
+    };
+
+    const getDayName = (date: Date, index: number) => {
+        if (index === 0) return 'Today';
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        return days[date.getDay()];
+    };
+
+    const getMonthYear = (date: Date) => {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `${months[date.getMonth()]} ${date.getFullYear()}`;
     };
 
     const loadUserAddress = async () => {
@@ -235,11 +370,13 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
         const pet = pets.find(p => p.id === selectedPet);
         const petName = pet ? `${pet.name} (${pet.species})` : undefined;
 
-        // Set booking date and time (next available slot - tomorrow at 10 AM for demo)
-        const bookingDate = new Date();
-        bookingDate.setDate(bookingDate.getDate() + 1);
-        const dateStr = bookingDate.toISOString().split('T')[0];
-        const timeStr = '10:00';
+        // Get selected date and time
+        const selectedDate = dateSlots[selectedDateIndex];
+        const dateStr = selectedDate.toISOString().split('T')[0];
+
+        // No platform fee for users - fee is deducted from grooming store earnings
+        const serviceFee = selectedPkg.price;
+        const totalAmount = serviceFee;
 
         const bookingData: BookingData = {
             type: 'grooming',
@@ -247,14 +384,17 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
             petName,
             bookingType: location,
             date: dateStr,
-            time: timeStr,
+            time: selectedTime,
             addressId: location === 'home' ? userAddress?.id : undefined,
             address: location === 'home' ? userAddress || undefined : undefined,
             packageType: selectedPackage,
             packageId: selectedPkg.id,
             contactNumber,
             notes: `${selectedPkg.name} package from ${selectedStore.store_name}`,
-            amount: selectedPkg.price,
+            amount: serviceFee,
+            serviceFee: serviceFee,
+            platformFee: 0, // No platform fee for users
+            totalAmount: totalAmount,
             serviceName: `${selectedPkg.name} Grooming (${location === 'home' ? 'Home' : 'Clinic'})`,
             groomingStoreId: selectedStore.id,
             groomingStoreName: selectedStore.store_name,
@@ -283,7 +423,9 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                         <span className="material-symbols-outlined text-gray-900">arrow_back</span>
                     </button>
                     <img src="assets/images/logo.jpg" className="h-8 w-8 object-contain" alt="Logo" />
-                    <h1 className="text-xl font-black text-primary tracking-tight font-display">Grooming</h1>
+                    <h1 className="text-xl font-black text-primary tracking-tight font-display">
+                        {isRescheduling ? 'Reschedule Grooming' : 'Grooming'}
+                    </h1>
                 </div>
                 <div className="w-10"></div>
             </header>
@@ -498,15 +640,15 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
 
                         <div className="p-1.5 bg-white rounded-[28px] flex border border-gray-100 shadow-sm">
                             <button
-                                onClick={() => setLocation('home')}
-                                className={`flex-1 py-4 px-6 rounded-[22px] flex items-center justify-center gap-3 font-black text-xs uppercase tracking-widest transition-all ${location === 'home' ? 'bg-primary text-white shadow-xl shadow-primary/20' : 'text-gray-400'}`}
+                                onClick={() => !isRescheduling && setLocation('home')}
+                                className={`flex-1 py-4 px-6 rounded-[22px] flex items-center justify-center gap-3 font-black text-xs uppercase tracking-widest transition-all ${isRescheduling ? 'cursor-not-allowed opacity-60' : ''} ${location === 'home' ? 'bg-primary text-white shadow-xl shadow-primary/20' : 'text-gray-400'}`}
                             >
                                 <span className="material-symbols-outlined text-[20px]">home</span>
                                 Home Visit
                             </button>
                             <button
-                                onClick={() => setLocation('clinic')}
-                                className={`flex-1 py-4 px-6 rounded-[22px] flex items-center justify-center gap-3 font-black text-xs uppercase tracking-widest transition-all ${location === 'clinic' ? 'bg-primary text-white shadow-xl shadow-primary/20' : 'text-gray-400'}`}
+                                onClick={() => !isRescheduling && setLocation('clinic')}
+                                className={`flex-1 py-4 px-6 rounded-[22px] flex items-center justify-center gap-3 font-black text-xs uppercase tracking-widest transition-all ${isRescheduling ? 'cursor-not-allowed opacity-60' : ''} ${location === 'clinic' ? 'bg-primary text-white shadow-xl shadow-primary/20' : 'text-gray-400'}`}
                             >
                                 <span className="material-symbols-outlined text-[20px]">medical_services</span>
                                 Clinic
@@ -518,14 +660,24 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                 {/* Store Selection - Show for both home and clinic visits */}
                 <section className="space-y-4">
                     <h3 className="text-xl font-black text-gray-900 tracking-tight">
-                        {location === 'clinic' ? 'Select Clinic' : 'Select Grooming Service'}
+                        {isRescheduling
+                            ? 'Your Grooming Store'
+                            : (location === 'clinic' ? 'Select Clinic' : 'Select Grooming Service')
+                        }
                     </h3>
+                    {isRescheduling && (
+                        <div className="mb-3 px-4 py-2 bg-blue-50 border border-blue-200 rounded-xl">
+                            <p className="text-blue-700 text-xs font-semibold">
+                                📅 Rescheduling with the same grooming store
+                            </p>
+                        </div>
+                    )}
                     <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
                         {groomingStores.map((store) => (
                             <div
                                 key={store.id}
-                                onClick={() => setSelectedStore(store)}
-                                className={`flex-shrink-0 w-[280px] p-5 rounded-[24px] border-2 transition-all cursor-pointer ${
+                                onClick={() => !isRescheduling && setSelectedStore(store)}
+                                className={`flex-shrink-0 w-[280px] p-5 rounded-[24px] border-2 transition-all ${isRescheduling ? 'cursor-default' : 'cursor-pointer'} ${
                                     selectedStore?.id === store.id
                                         ? 'border-primary bg-white ring-4 ring-primary/5 shadow-xl'
                                         : 'border-white bg-white shadow-sm hover:shadow-md'
@@ -611,6 +763,46 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                             ))}
                         </div>
                     )}
+                </section>
+
+                {/* Date & Time Selection */}
+                <section className="space-y-5">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-xl font-black text-gray-900 tracking-tight">Select Date & Time</h3>
+                        <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{getMonthYear(today)}</div>
+                    </div>
+
+                    {/* Date Selection */}
+                    <div className="overflow-x-auto -mx-6 px-6">
+                        <div className="flex gap-3 py-1 w-max">
+                            {dateSlots.map((date, i) => (
+                                <div
+                                    key={i}
+                                    onClick={() => setSelectedDateIndex(i)}
+                                    className={`flex flex-col items-center justify-center min-w-[64px] h-[80px] rounded-2xl transition-all cursor-pointer border flex-shrink-0 ${selectedDateIndex === i ? 'bg-primary text-white border-primary shadow-2xl scale-110' : 'bg-white border-gray-100 text-gray-400'}`}
+                                >
+                                    <span className="text-[10px] font-black uppercase mb-1">{getDayName(date, i)}</span>
+                                    <span className="text-xl font-black">{date.getDate()}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Time Selection */}
+                    <div>
+                        <h4 className="text-sm font-black text-gray-900 mb-3">Available Time Slots</h4>
+                        <div className="grid grid-cols-4 gap-3">
+                            {availableTimeSlots.map((time) => (
+                                <button
+                                    key={time}
+                                    onClick={() => setSelectedTime(time)}
+                                    className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${selectedTime === time ? 'bg-primary text-white border-primary shadow-xl' : 'border-gray-100 bg-white text-gray-600 hover:border-primary/20'}`}
+                                >
+                                    {time}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                 </section>
             </main>
 

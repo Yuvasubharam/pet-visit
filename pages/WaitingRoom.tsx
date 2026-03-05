@@ -27,9 +27,11 @@ const WaitingRoom: React.FC<Props> = ({ onBack, onJoin, booking, userId, userTyp
   const [isSendingNote, setIsSendingNote] = useState(false);
   const [doctorOnline, setDoctorOnline] = useState(false);
   const [canJoinNow, setCanJoinNow] = useState(false);
+  const [isConsultationCompleted, setIsConsultationCompleted] = useState(false);
 
   const timerIntervalRef = useRef<number | null>(null);
   const subscriptionRef = useRef<any>(null);
+  const bookingSubscriptionRef = useRef<any>(null);
 
   // Safety check - if booking is not provided, show error
   if (!booking) {
@@ -52,9 +54,13 @@ const WaitingRoom: React.FC<Props> = ({ onBack, onJoin, booking, userId, userTyp
 
   useEffect(() => {
     if (booking && booking.id) {
+      // Check initial booking status
+      setIsConsultationCompleted(booking.status === 'completed');
+
       initializeWaitingRoom();
       checkSystemRequirements();
       startCountdownTimer();
+      subscribeToBookingStatus();
     }
 
     return () => {
@@ -155,9 +161,11 @@ const WaitingRoom: React.FC<Props> = ({ onBack, onJoin, booking, userId, userTyp
       const diff = appointmentTime.getTime() - now.getTime();
 
       if (diff <= 0) {
-        // Time has passed, can join now
+        // Time has passed, can join now (if not completed)
         setTimeUntilStart({ hours: 0, minutes: 0, seconds: 0 });
-        setCanJoinNow(true);
+        if (!isConsultationCompleted) {
+          setCanJoinNow(true);
+        }
         if (timerIntervalRef.current) {
           clearInterval(timerIntervalRef.current);
         }
@@ -170,10 +178,8 @@ const WaitingRoom: React.FC<Props> = ({ onBack, onJoin, booking, userId, userTyp
 
       setTimeUntilStart({ hours, minutes, seconds });
 
-      // Allow joining 5 minutes before scheduled time
-      if (diff <= 5 * 60 * 1000) {
-        setCanJoinNow(true);
-      }
+      // Don't allow joining before scheduled time - user must wait for the exact time slot
+      setCanJoinNow(false);
     };
 
     updateTimer();
@@ -207,12 +213,42 @@ const WaitingRoom: React.FC<Props> = ({ onBack, onJoin, booking, userId, userTyp
     }
   };
 
+  const subscribeToBookingStatus = () => {
+    if (!booking?.id) return;
+
+    // Subscribe to real-time booking status changes
+    bookingSubscriptionRef.current = supabase
+      .channel(`booking-${booking.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'bookings',
+          filter: `id=eq.${booking.id}`,
+        },
+        (payload: any) => {
+          console.log('[WaitingRoom] Booking status changed:', payload.new);
+          if (payload.new.status === 'completed') {
+            setIsConsultationCompleted(true);
+            setCanJoinNow(false);
+          }
+        }
+      )
+      .subscribe();
+
+    console.log('[WaitingRoom] Subscribed to booking status updates');
+  };
+
   const cleanup = () => {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
     }
     if (subscriptionRef.current) {
       subscriptionRef.current.unsubscribe();
+    }
+    if (bookingSubscriptionRef.current) {
+      bookingSubscriptionRef.current.unsubscribe();
     }
   };
 
@@ -272,8 +308,19 @@ const WaitingRoom: React.FC<Props> = ({ onBack, onJoin, booking, userId, userTyp
         </header>
 
         <main className="flex-1 overflow-y-auto no-scrollbar pb-32">
+          {/* Consultation Completed Banner */}
+          {isConsultationCompleted && (
+            <div className="mx-4 mt-4 mb-2 px-4 py-3 bg-slate-100 border border-slate-300 rounded-xl flex items-center gap-3">
+              <span className="material-symbols-outlined text-slate-600">check_circle</span>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-slate-800">Consultation Completed</p>
+                <p className="text-xs text-slate-600 mt-0.5">This consultation has ended</p>
+              </div>
+            </div>
+          )}
+
           {/* Real-time Status Banner */}
-          {doctorOnline && (
+          {!isConsultationCompleted && doctorOnline && (
             <div className="mx-4 mt-4 mb-2 px-4 py-3 bg-green-50 border border-green-200 rounded-xl flex items-center gap-3">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
               <p className="text-sm font-semibold text-green-800">
@@ -321,7 +368,7 @@ const WaitingRoom: React.FC<Props> = ({ onBack, onJoin, booking, userId, userTyp
           {/* Timer Section */}
           <div className="flex flex-col items-center justify-center pt-2 pb-6 px-4">
             <h3 className="text-slate-500 tracking-wide text-sm font-semibold uppercase mb-4">
-              {canJoinNow ? 'READY TO JOIN' : 'CONSULTATION STARTS IN'}
+              {isConsultationCompleted ? 'CONSULTATION ENDED' : canJoinNow ? 'READY TO JOIN' : 'CONSULTATION STARTS IN'}
             </h3>
             <div className="flex gap-3 w-full max-w-[320px]">
               <div className="flex grow basis-0 flex-col items-center gap-2">
@@ -447,19 +494,30 @@ const WaitingRoom: React.FC<Props> = ({ onBack, onJoin, booking, userId, userTyp
         <footer className="absolute bottom-0 w-full bg-white border-t border-slate-100 p-4 pb-8 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <button
             onClick={onJoin}
-            disabled={!canJoinNow || (!systemCheck.camera.available && !systemCheck.microphone.available)}
+            disabled={isConsultationCompleted || !canJoinNow || (!systemCheck.camera.available && !systemCheck.microphone.available)}
             className={`w-full flex items-center justify-center gap-2 py-4 rounded-xl font-bold text-lg shadow-lg transition-all ${
-              canJoinNow && (systemCheck.camera.available || systemCheck.microphone.available)
+              !isConsultationCompleted && canJoinNow && (systemCheck.camera.available || systemCheck.microphone.available)
                 ? 'bg-primary hover:bg-sky-800 active:scale-[0.98] text-white shadow-primary/25'
                 : 'bg-slate-300 text-slate-500 cursor-not-allowed'
             }`}
           >
-            <span className="material-symbols-outlined">video_camera_front</span>
-            {canJoinNow ? 'Join Consultation' : 'Waiting to Start...'}
+            <span className="material-symbols-outlined">
+              {isConsultationCompleted ? 'check_circle' : 'video_camera_front'}
+            </span>
+            {isConsultationCompleted
+              ? 'Consultation Completed'
+              : canJoinNow
+                ? 'Join Consultation'
+                : 'Waiting for Scheduled Time...'}
           </button>
-          {!canJoinNow && (
+          {!isConsultationCompleted && !canJoinNow && (
             <p className="text-xs text-center text-slate-500 mt-2">
-              You can join 5 minutes before the scheduled time
+              You can join at your scheduled appointment time
+            </p>
+          )}
+          {isConsultationCompleted && (
+            <p className="text-xs text-center text-slate-500 mt-2">
+              This consultation has been completed by the doctor
             </p>
           )}
         </footer>

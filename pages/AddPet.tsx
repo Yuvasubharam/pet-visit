@@ -68,6 +68,7 @@ const AddPet: React.FC<Props> = ({ onBack, onCreate, selectedPetType = 'dog' }) 
       breed: selectedBreed || undefined,
       age: age > 0 ? age : undefined,
       weight: petWeight,
+      date_of_birth: dateOfBirth || undefined,
     };
 
     onCreate(completePetData);

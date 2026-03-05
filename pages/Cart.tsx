@@ -12,6 +12,9 @@ interface CartItemDisplay {
   price: number;
   quantity: number;
   image: string;
+  variationId?: string;
+  variationName?: string;
+  variationValue?: string;
 }
 
 interface Props {
@@ -67,15 +70,35 @@ const Cart: React.FC<Props> = ({ onBack, onHomeClick, onVisitsClick, onProceed, 
     try {
       setIsLoadingCart(true);
       const data = await cartService.getCartItems(userId);
-      const mappedItems = (data || []).map((item: any) => ({
-        cartId: item.id,
-        productId: item.product_id,
-        brand: item.products?.brand || 'Unknown',
-        name: item.products?.name || 'Product',
-        price: item.products?.price || 0,
-        quantity: item.quantity,
-        image: item.products?.image || ''
-      }));
+      const mappedItems = (data || []).map((item: any) => {
+        // Determine price based on variation or product
+        let price = item.shop_products?.base_price || 0;
+
+        if (item.product_variations) {
+          // Use variation sale_price if available, otherwise calculate from price_adjustment
+          if (item.product_variations.sale_price && item.product_variations.sale_price > 0) {
+            price = item.product_variations.sale_price;
+          } else if (item.product_variations.price_adjustment !== undefined) {
+            price = (item.shop_products?.base_price || 0) + item.product_variations.price_adjustment;
+          }
+        } else if (item.shop_products?.sale_price && item.shop_products.sale_price > 0) {
+          // Use product sale_price if no variation
+          price = item.shop_products.sale_price;
+        }
+
+        return {
+          cartId: item.id,
+          productId: item.product_id,
+          brand: item.shop_products?.category || 'Product',
+          name: item.shop_products?.name || 'Product',
+          price: price,
+          quantity: item.quantity,
+          image: item.shop_products?.main_image || '',
+          variationId: item.variation_id,
+          variationName: item.product_variations?.variation_name,
+          variationValue: item.product_variations?.variation_value
+        };
+      });
       setCartItems(mappedItems);
     } catch (error) {
       console.error('Error loading cart:', error);
@@ -420,6 +443,11 @@ const Cart: React.FC<Props> = ({ onBack, onHomeClick, onVisitsClick, onProceed, 
                           </button>
                         </div>
                         <p className="text-sm font-bold text-[#111418] line-clamp-2 leading-snug pr-2">{item.name}</p>
+                        {item.variationName && item.variationValue && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            {item.variationName}: <span className="font-semibold">{item.variationValue}</span>
+                          </p>
+                        )}
                       </div>
                       <div className="flex justify-between items-end mt-2">
                         <p className="text-lg font-bold text-[#111418]">₹{item.price.toFixed(2)}</p>

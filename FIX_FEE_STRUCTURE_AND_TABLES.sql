@@ -339,12 +339,54 @@ SELECT
     AND b.status = 'completed'
   ) as today_completed,
 
+  COUNT(DISTINCT b.id) FILTER (
+    WHERE b.doctor_id = d.id
+    AND b.service_type = 'consultation'
+    AND b.date = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')
+    AND b.status = 'upcoming'
+  ) as today_upcoming,
+
+  COUNT(DISTINCT b.id) FILTER (
+    WHERE b.doctor_id = d.id
+    AND b.service_type = 'consultation'
+    AND b.date = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')
+    AND b.status = 'cancelled'
+  ) as today_cancelled,
+
+  -- This week's stats
+  COUNT(DISTINCT b.id) FILTER (
+    WHERE b.doctor_id = d.id
+    AND b.service_type = 'consultation'
+    AND TO_DATE(b.date, 'YYYY-MM-DD') >= DATE_TRUNC('week', CURRENT_DATE)
+    AND TO_DATE(b.date, 'YYYY-MM-DD') < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
+  ) as week_total,
+
   -- Earnings with new structure
   COALESCE(SUM(de.gross_amount), 0) as gross_earnings,
   COALESCE(SUM(de.platform_commission), 0) as total_commission_paid,
   COALESCE(SUM(de.net_amount), 0) as total_earnings,
   COALESCE(SUM(de.net_amount) FILTER (WHERE de.status = 'paid'), 0) as paid_earnings,
-  COALESCE(SUM(de.net_amount) FILTER (WHERE de.status = 'pending'), 0) as pending_earnings
+  COALESCE(SUM(de.net_amount) FILTER (WHERE de.status = 'pending'), 0) as pending_earnings,
+
+  -- Average rating from doctor_reviews table
+  COALESCE(
+    (
+      SELECT ROUND(AVG(dr.rating)::numeric, 2)
+      FROM doctor_reviews dr
+      WHERE dr.doctor_id = d.id
+    ),
+    0
+  ) as average_rating,
+
+  -- Total number of reviews
+  COALESCE(
+    (
+      SELECT COUNT(*)
+      FROM doctor_reviews dr
+      WHERE dr.doctor_id = d.id
+    ),
+    0
+  ) as total_reviews
 
 FROM doctors d
 LEFT JOIN bookings b ON b.doctor_id = d.id
@@ -356,10 +398,10 @@ GROUP BY d.id, d.full_name, d.email, d.phone, d.specialization, d.profile_photo_
 GRANT SELECT ON doctor_analytics TO authenticated;
 
 -- =====================================================
--- PART 10: Create Platform Analytics View
+-- PART 10: Create Platform Revenue Summary View
 -- =====================================================
 
-CREATE OR REPLACE VIEW platform_analytics AS
+CREATE OR REPLACE VIEW platform_revenue_summary AS
 SELECT
   -- Total platform income
   COALESCE(SUM(platform_fee), 0) as total_platform_fees,
@@ -386,7 +428,7 @@ SELECT
 
 FROM platform_earnings;
 
-GRANT SELECT ON platform_analytics TO authenticated;
+GRANT SELECT ON platform_revenue_summary TO authenticated;
 
 -- =====================================================
 -- PART 11: Add RLS Policies
@@ -396,13 +438,22 @@ GRANT SELECT ON platform_analytics TO authenticated;
 ALTER TABLE platform_earnings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE platform_settings ENABLE ROW LEVEL SECURITY;
 
--- Platform earnings - viewable by all authenticated users (or restrict as needed)
-CREATE POLICY "Platform earnings viewable by authenticated"
+-- Platform earnings - only viewable by admins
+DROP POLICY IF EXISTS "Platform earnings viewable by authenticated" ON platform_earnings;
+DROP POLICY IF EXISTS "Platform earnings viewable by admins" ON platform_earnings;
+CREATE POLICY "Platform earnings viewable by admins"
 ON platform_earnings FOR SELECT
 TO authenticated
-USING (true);
+USING (
+  EXISTS (
+    SELECT 1 FROM users
+    WHERE users.id = auth.uid() 
+    AND users.role IN ('super_admin', 'admin', 'moderator', 'support')
+  )
+);
 
 -- Platform settings - everyone can read
+DROP POLICY IF EXISTS "Platform settings readable by all" ON platform_settings;
 CREATE POLICY "Platform settings readable by all"
 ON platform_settings FOR SELECT
 TO authenticated

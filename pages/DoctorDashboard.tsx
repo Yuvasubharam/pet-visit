@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { doctorAuthService, doctorConsultationService, doctorAnalyticsService } from '../services/doctorApi';
+import { supabase } from '../lib/supabase';
 import type { Doctor, Booking } from '../types';
 
 interface DoctorDashboardProps {
@@ -7,7 +8,17 @@ interface DoctorDashboardProps {
   onAvailability: () => void;
   onFeeManagement: () => void;
   onConsultations: () => void;
+  onLogout: () => void;
+  onManageOrders: () => void;
+  onManageProducts: () => void;
   doctorId: string | null;
+}
+
+interface ProductProfitStats {
+  totalProfit: number;
+  totalOrders: number;
+  totalSalesValue: number;
+  totalPurchaseValue: number;
 }
 
 const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
@@ -15,6 +26,9 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
   onAvailability,
   onFeeManagement,
   onConsultations,
+  onLogout,
+  onManageOrders,
+  onManageProducts,
   doctorId,
 }) => {
   const [doctor, setDoctor] = useState<Doctor | null>(null);
@@ -36,6 +50,12 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
   const [pendingBookings, setPendingBookings] = useState<Booking[]>([]);
   const [processingBooking, setProcessingBooking] = useState<string | null>(null);
+  const [productProfits, setProductProfits] = useState<ProductProfitStats>({
+    totalProfit: 0,
+    totalOrders: 0,
+    totalSalesValue: 0,
+    totalPurchaseValue: 0
+  });
 
   useEffect(() => {
     loadDashboardData();
@@ -52,9 +72,19 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
       console.log('[DoctorDashboard] Loading dashboard data for doctorId:', doctorId);
 
       // Load doctor profile
-      const doctorProfile = await doctorAuthService.getDoctorById(doctorId);
-      console.log('[DoctorDashboard] Doctor profile loaded:', doctorProfile);
-      setDoctor(doctorProfile);
+      try {
+        const doctorProfile = await doctorAuthService.getDoctorById(doctorId);
+        console.log('[DoctorDashboard] Doctor profile loaded:', doctorProfile);
+        setDoctor(doctorProfile);
+      } catch (profileError: any) {
+        // PGRST116 means no rows found - this is expected for new doctors who haven't set up profile
+        if (profileError?.code === 'PGRST116') {
+          console.log('[DoctorDashboard] No doctor profile found - new doctor needs to complete setup');
+          setDoctor(null);
+        } else {
+          console.error('[DoctorDashboard] Error loading doctor profile:', profileError);
+        }
+      }
 
       // Load real-time analytics with error handling
       try {
@@ -116,10 +146,64 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
       });
       console.log('[DoctorDashboard] Pending bookings:', pending.length, pending);
       setPendingBookings(pending);
+
+      // Load product profit stats (based on sale price - purchase price)
+      await loadProductProfitStats(doctorId);
     } catch (error) {
       console.error('[DoctorDashboard] Error loading dashboard data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadProductProfitStats = async (doctorId: string) => {
+    try {
+      // Fetch order items for this doctor's products with price info
+      const { data: orderItems, error } = await supabase
+        .from('order_items')
+        .select(`
+          id,
+          quantity,
+          unit_price,
+          total_price,
+          shop_products!inner(
+            id,
+            seller_id,
+            purchase_price,
+            price
+          )
+        `)
+        .eq('shop_products.seller_id', doctorId);
+
+      if (error) {
+        console.error('Error loading product profit stats:', error);
+        return;
+      }
+
+      let totalSalesValue = 0;
+      let totalPurchaseValue = 0;
+      let totalOrders = new Set();
+
+      (orderItems || []).forEach((item: any) => {
+        const salePrice = item.unit_price || item.shop_products?.price || 0;
+        const purchasePrice = item.shop_products?.purchase_price || 0;
+        const quantity = item.quantity || 1;
+
+        totalSalesValue += salePrice * quantity;
+        totalPurchaseValue += purchasePrice * quantity;
+        if (item.order_id) totalOrders.add(item.order_id);
+      });
+
+      const totalProfit = totalSalesValue - totalPurchaseValue;
+
+      setProductProfits({
+        totalProfit,
+        totalOrders: totalOrders.size || orderItems?.length || 0,
+        totalSalesValue,
+        totalPurchaseValue
+      });
+    } catch (error) {
+      console.error('Error loading product profit stats:', error);
     }
   };
 
@@ -164,6 +248,70 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-slate-600 dark:text-slate-400">Loading dashboard...</p>
         </div>
+      </div>
+    );
+  }
+
+  // Handle Pending Approval
+  if (doctor?.approval === 'pending') {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen p-8 text-center bg-white dark:bg-background-dark max-w-md mx-auto shadow-xl">
+        <div className="w-24 h-24 bg-amber-50 dark:bg-amber-900/20 rounded-full flex items-center justify-center mb-6">
+          <span className="material-symbols-outlined text-amber-500 text-5xl">pending_actions</span>
+        </div>
+        <h1 className="text-2xl font-black text-slate-900 dark:text-dark mb-2">Approval Pending</h1>
+        <p className="text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
+          Welcome, <span className="font-bold text-primary">Dr. {doctor.full_name}</span>. Your registration is currently under review. Our admin team will verify your credentials and approve your account soon.
+        </p>
+        <div className="w-full bg-slate-50 dark:bg-surface-dark p-4 rounded-2xl border border-slate-100 dark:border-slate-800 mb-8 text-left">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-dark mb-2">Verification Steps:</h3>
+          <ul className="space-y-2">
+            <li className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+              <span className="material-symbols-outlined text-green-500 text-sm">check_circle</span>
+              Registration Received
+            </li>
+            <li className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+              <span className="material-symbols-outlined text-amber-500 text-sm">hourglass_empty</span>
+              Credential Verification (In Progress)
+            </li>
+            <li className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+              <span className="material-symbols-outlined text-slate-300 text-sm">radio_button_unchecked</span>
+              Final Approval & Dashboard Access
+            </li>
+          </ul>
+        </div>
+        <button 
+          onClick={onLogout}
+          className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-transform shadow-lg shadow-slate-200"
+        >
+          Logout
+        </button>
+      </div>
+    );
+  }
+
+  // Handle Rejected Application
+  if (doctor?.approval === 'rejected') {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen p-8 text-center bg-white dark:bg-background-dark max-w-md mx-auto shadow-xl">
+        <div className="w-24 h-24 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-6">
+          <span className="material-symbols-outlined text-red-500 text-5xl">cancel</span>
+        </div>
+        <h1 className="text-2xl font-black text-slate-900 dark:text-dark mb-2">Application Rejected</h1>
+        <p className="text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+          {doctor.rejection_reason || 'Unfortunately, your application was not approved at this time. Please contact our support team for more details.'}
+        </p>
+        <div className="w-full p-4 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-900/30 mb-8">
+          <p className="text-xs text-red-600 dark:text-red-400 font-medium">
+            If you believe this was an error, please reach out to support@petvisit.com
+          </p>
+        </div>
+        <button 
+          onClick={onLogout}
+          className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-transform"
+        >
+          Logout
+        </button>
       </div>
     );
   }
@@ -271,9 +419,17 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
             {/* Total Earnings */}
             <div className="col-span-2 bg-white dark:bg-surface-dark p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex-1">
-                <span className="text-xs text-slate-700 dark:text-slate-700 font-bold uppercase tracking-wider">
-                  Total Earnings
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-slate-700 dark:text-slate-700 font-bold uppercase tracking-wider">
+                    Total Earnings
+                  </span>
+                  <div className="group relative">
+                    <span className="material-symbols-outlined text-[14px] text-slate-400 cursor-help">info</span>
+                    <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-900 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                      Amount shown is net after platform fee deduction.
+                    </div>
+                  </div>
+                </div>
                 <div className="flex items-center gap-3 mt-1">
                   <span className="text-2xl font-bold text-slate-900 dark:text-dark">
                     ₹{analytics.total_earnings.toFixed(2)}
@@ -300,8 +456,76 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                 <span className="material-symbols-outlined">payments</span>
               </div>
             </div>
+
           </div>
         </section>
+
+        {/* Store Product Profit Section */}
+        {doctor?.approval === 'approved' && (
+          <section className="space-y-4">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-dark">Product Sales Profit</h2>
+
+            <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 rounded-2xl p-5 shadow-lg text-white">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-white text-2xl">trending_up</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1">
+                      <p className="text-xs font-medium opacity-80">Total Profit Earned</p>
+                      <div className="group/info relative">
+                        <span className="material-symbols-outlined text-[14px] text-white/60 cursor-help">info</span>
+                        <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-900 text-white text-[10px] rounded-lg opacity-0 group-hover/info:opacity-100 transition-opacity pointer-events-none z-50">
+                          Profit = Sale Price - Purchase Price for all sold products.
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-2xl font-black">₹{productProfits.totalProfit.toFixed(2)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-white/20">
+                <div>
+                  <p className="text-[10px] font-medium opacity-80">Sales Value</p>
+                  <p className="text-sm font-black">₹{productProfits.totalSalesValue.toFixed(0)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium opacity-80">Cost Value</p>
+                  <p className="text-sm font-black">₹{productProfits.totalPurchaseValue.toFixed(0)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium opacity-80">Orders</p>
+                  <p className="text-sm font-black">{productProfits.totalOrders}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Margin Rate Card */}
+            <div className="bg-white dark:bg-surface-dark rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-emerald-600 text-xl">percent</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 dark:text-dark">Profit Margin</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">On product sales</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-black text-emerald-600">
+                    {productProfits.totalSalesValue > 0
+                      ? ((productProfits.totalProfit / productProfits.totalSalesValue) * 100).toFixed(1)
+                      : 0}%
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-medium">Avg margin</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Pending Approvals Section - Show if there are pending bookings */}
         {pendingBookings.length > 0 ? (
@@ -542,6 +766,66 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                 <p className="text-xs text-slate-700 dark:text-slate-900 group-hover:text-slate-300 mt-0.5 transition-colors">
                   Overview of patient visits
                 </p>
+              </div>
+              <span className="material-symbols-outlined text-slate-400 group-hover:text-white pr-2 transition-colors">
+                chevron_right
+              </span>
+            </button>
+
+            {/* Store Management (Only if approved) */}
+            {doctor?.approval === 'approved' && (
+              <>
+                <button
+                  onClick={onManageOrders}
+                  className="w-full bg-white dark:bg-surface-dark p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-4 hover:bg-orange-500 transition-colors group"
+                >
+                  <div className="h-16 w-16 shrink-0 rounded-xl overflow-hidden bg-orange-50 group-hover:bg-white/10 relative transition-colors">
+                    <div className="h-full w-full flex items-center justify-center">
+                      <span className="material-symbols-outlined text-3xl text-orange-600 group-hover:text-white transition-colors">shopping_bag</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 text-left">
+                    <h3 className="font-bold text-slate-900 dark:text-dark group-hover:text-white transition-colors">Order Management</h3>
+                    <p className="text-xs text-slate-700 dark:text-slate-900 group-hover:text-orange-100 mt-0.5 transition-colors">Manage product orders</p>
+                  </div>
+                  <span className="material-symbols-outlined text-slate-400 group-hover:text-white pr-2 transition-colors">
+                    chevron_right
+                  </span>
+                </button>
+
+                <button
+                  onClick={onManageProducts}
+                  className="w-full bg-white dark:bg-surface-dark p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-4 hover:bg-blue-500 transition-colors group"
+                >
+                  <div className="h-16 w-16 shrink-0 rounded-xl overflow-hidden bg-blue-50 group-hover:bg-white/10 relative transition-colors">
+                    <div className="h-full w-full flex items-center justify-center">
+                      <span className="material-symbols-outlined text-3xl text-blue-600 group-hover:text-white transition-colors">inventory_2</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 text-left">
+                    <h3 className="font-bold text-slate-900 dark:text-dark group-hover:text-white transition-colors">Store Management</h3>
+                    <p className="text-xs text-slate-700 dark:text-slate-900 group-hover:text-blue-100 mt-0.5 transition-colors">Manage shop inventory</p>
+                  </div>
+                  <span className="material-symbols-outlined text-slate-400 group-hover:text-white pr-2 transition-colors">
+                    chevron_right
+                  </span>
+                </button>
+              </>
+            )}
+
+            {/* Logout */}
+            <button
+              onClick={onLogout}
+              className="w-full bg-white dark:bg-surface-dark p-3 rounded-2xl shadow-sm border border-red-200 dark:border-red-800 flex items-center gap-4 hover:bg-red-500 dark:hover:bg-red-600 transition-colors group"
+            >
+              <div className="h-16 w-16 shrink-0 rounded-xl overflow-hidden bg-red-50 group-hover:bg-white/10 relative transition-colors">
+                <div className="h-full w-full flex items-center justify-center">
+                  <span className="material-symbols-outlined text-3xl text-red-500 group-hover:text-white transition-colors">logout</span>
+                </div>
+              </div>
+              <div className="flex-1 text-left">
+                <h3 className="font-bold text-slate-900 dark:text-dark group-hover:text-white transition-colors">Logout</h3>
+                <p className="text-xs text-slate-700 dark:text-slate-900 group-hover:text-red-100 mt-0.5 transition-colors">Sign out of your account</p>
               </div>
               <span className="material-symbols-outlined text-slate-400 group-hover:text-white pr-2 transition-colors">
                 chevron_right

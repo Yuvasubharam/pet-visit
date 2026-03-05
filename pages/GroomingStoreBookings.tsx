@@ -31,6 +31,10 @@ const GroomingStoreBookings: React.FC<GroomingStoreBookingsProps> = ({ storeId, 
     try {
       setLoading(true);
       const data = await groomingStoreBookingService.getStoreBookings(storeId);
+      console.log('Loaded bookings data:', data);
+      if (data && data.length > 0) {
+        console.log('First booking sample:', data[0]);
+      }
       setBookings(data || []);
     } catch (error) {
       console.error('Error loading bookings:', error);
@@ -166,6 +170,11 @@ const GroomingStoreBookings: React.FC<GroomingStoreBookingsProps> = ({ storeId, 
             <button
               key={booking.id}
               onClick={() => {
+                console.log('Selected booking:', booking);
+                console.log('Pets data:', booking.pets);
+                console.log('Users data:', booking.users);
+                console.log('Addresses data:', booking.addresses);
+                console.log('Grooming packages data:', booking.grooming_packages);
                 setSelectedBooking(booking);
                 setShowDetails(true);
               }}
@@ -180,10 +189,10 @@ const GroomingStoreBookings: React.FC<GroomingStoreBookingsProps> = ({ storeId, 
                   </div>
                   <div>
                     <p className="text-sm font-black text-slate-900">
-                      {booking.pets?.name || 'Pet'} - {booking.pets?.species}
+                      {(Array.isArray(booking.pets) ? booking.pets[0]?.name : booking.pets?.name) || 'Pet'} - {(Array.isArray(booking.pets) ? booking.pets[0]?.species : booking.pets?.species) || 'Unknown'}
                     </p>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      {booking.grooming_packages?.name || booking.package_type}
+                      {(Array.isArray(booking.grooming_packages) ? booking.grooming_packages[0]?.name : booking.grooming_packages?.name) || booking.package_type}
                     </p>
                   </div>
                 </div>
@@ -244,18 +253,41 @@ const GroomingStoreBookings: React.FC<GroomingStoreBookingsProps> = ({ storeId, 
               <div className="bg-slate-50 rounded-2xl p-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Pet Information</p>
                 <p className="text-lg font-black text-slate-900">
-                  {selectedBooking.pets?.name || 'Unknown Pet'}
+                  {(Array.isArray(selectedBooking.pets) ? selectedBooking.pets[0]?.name : selectedBooking.pets?.name) || 'Unknown Pet'}
                 </p>
-                <p className="text-sm text-slate-600">{selectedBooking.pets?.species}</p>
+                <p className="text-sm text-slate-600">
+                  {(Array.isArray(selectedBooking.pets) ? selectedBooking.pets[0]?.species : selectedBooking.pets?.species) || 'Species not specified'}
+                </p>
+                {(Array.isArray(selectedBooking.pets) ? selectedBooking.pets[0]?.breed : selectedBooking.pets?.breed) && (
+                  <p className="text-sm text-slate-500">Breed: {Array.isArray(selectedBooking.pets) ? selectedBooking.pets[0]?.breed : selectedBooking.pets?.breed}</p>
+                )}
               </div>
+
+              {/* Owner Info */}
+              {(selectedBooking.users || (Array.isArray(selectedBooking.users) && selectedBooking.users.length > 0)) && (
+                <div className="bg-slate-50 rounded-2xl p-4">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Owner Information</p>
+                  <p className="text-lg font-black text-slate-900">
+                    {(Array.isArray(selectedBooking.users) ? selectedBooking.users[0]?.name : selectedBooking.users?.name) || 'Unknown Owner'}
+                  </p>
+                  {(Array.isArray(selectedBooking.users) ? selectedBooking.users[0]?.email : selectedBooking.users?.email) && (
+                    <p className="text-sm text-slate-600">{Array.isArray(selectedBooking.users) ? selectedBooking.users[0]?.email : selectedBooking.users?.email}</p>
+                  )}
+                  {(Array.isArray(selectedBooking.users) ? selectedBooking.users[0]?.phone : selectedBooking.users?.phone) && (
+                    <p className="text-sm text-slate-500">Phone: {Array.isArray(selectedBooking.users) ? selectedBooking.users[0]?.phone : selectedBooking.users?.phone}</p>
+                  )}
+                </div>
+              )}
 
               {/* Package Info */}
               <div className="bg-slate-50 rounded-2xl p-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Package</p>
                 <p className="text-lg font-black text-slate-900">
-                  {selectedBooking.grooming_packages?.name || selectedBooking.package_type}
+                  {(Array.isArray(selectedBooking.grooming_packages) ? selectedBooking.grooming_packages[0]?.name : selectedBooking.grooming_packages?.name) || selectedBooking.package_type || 'Package'}
                 </p>
-                <p className="text-sm text-slate-600">{selectedBooking.grooming_packages?.description}</p>
+                <p className="text-sm text-slate-600">
+                  {(Array.isArray(selectedBooking.grooming_packages) ? selectedBooking.grooming_packages[0]?.description : selectedBooking.grooming_packages?.description) || 'No description available'}
+                </p>
               </div>
 
               {/* Date & Time */}
@@ -271,19 +303,63 @@ const GroomingStoreBookings: React.FC<GroomingStoreBookingsProps> = ({ storeId, 
                 <p className="text-lg font-black text-slate-900">
                   {selectedBooking.booking_type === 'home' ? 'Home Visit' : 'Clinic Visit'}
                 </p>
-                {selectedBooking.booking_type === 'home' && selectedBooking.addresses && (
-                  <p className="text-sm text-slate-600 mt-1">
-                    {selectedBooking.addresses.full_address ||
-                     `${selectedBooking.addresses.flat_number}, ${selectedBooking.addresses.street}, ${selectedBooking.addresses.city}`}
-                  </p>
-                )}
+                {selectedBooking.booking_type === 'home' && (() => {
+                  const address = Array.isArray(selectedBooking.addresses) ? selectedBooking.addresses[0] : selectedBooking.addresses;
+                  if (!address) return null;
+
+                  return (
+                    <>
+                      <p className="text-sm text-slate-600 mt-2">
+                        {address.full_address ||
+                         `${address.flat_number || ''}, ${address.street || ''}, ${address.city || ''}`}
+                      </p>
+
+                      {/* Map and Navigate Button */}
+                      {address.latitude && address.longitude && (
+                        <div className="mt-3 space-y-2">
+                          {/* Google Maps Iframe */}
+                          <div className="rounded-xl overflow-hidden border-2 border-slate-200 shadow-sm">
+                            <iframe
+                              src={`https://maps.google.com/maps?q=${address.latitude},${address.longitude}&t=&z=15&ie=UTF8&iwloc=&output=embed`}
+                              width="100%"
+                              height="200"
+                              style={{ border: 0 }}
+                              loading="lazy"
+                              referrerPolicy="no-referrer-when-downgrade"
+                              title="Location Map"
+                            />
+                          </div>
+
+                          {/* Navigate Button */}
+                          <a
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${address.latitude},${address.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl transition-colors"
+                          >
+                            <span className="material-symbols-outlined">directions</span>
+                            Navigate to Location
+                          </a>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Contact */}
               {selectedBooking.contact_number && (
                 <div className="bg-slate-50 rounded-2xl p-4">
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Contact</p>
-                  <p className="text-lg font-black text-slate-900">{selectedBooking.contact_number}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-lg font-black text-slate-900">{selectedBooking.contact_number}</p>
+                    <a
+                      href={`tel:${selectedBooking.contact_number}`}
+                      className="w-12 h-12 rounded-full bg-green-600 hover:bg-green-700 flex items-center justify-center transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-white text-xl">call</span>
+                    </a>
+                  </div>
                 </div>
               )}
 

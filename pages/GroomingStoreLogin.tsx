@@ -13,14 +13,30 @@ const GroomingStoreLogin: React.FC<GroomingStoreLoginProps> = ({ onBack, onLogin
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pendingApproval, setPendingApproval] = useState(false);
+  const [storeName, setStoreName] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setPendingApproval(false);
     setLoading(true);
 
     try {
-      await groomingStoreAuthService.signInWithEmail(email, password);
+      const result = await groomingStoreAuthService.signInWithEmail(email, password);
+
+      // Check if store is pending approval
+      if (result.storeProfile) {
+        if (result.storeProfile.approval_status === 'pending') {
+          setPendingApproval(true);
+          setStoreName(result.storeProfile.store_name);
+          return;
+        } else if (result.storeProfile.approval_status === 'rejected') {
+          setError(`Your store account was rejected. ${result.storeProfile.rejection_reason ? `Reason: ${result.storeProfile.rejection_reason}` : 'Please contact support for more information.'}`);
+          return;
+        }
+      }
+
       onLoginSuccess();
     } catch (err: any) {
       console.error('Login error:', err);
@@ -29,6 +45,70 @@ const GroomingStoreLogin: React.FC<GroomingStoreLoginProps> = ({ onBack, onLogin
       setLoading(false);
     }
   };
+
+  // Pending Approval Screen
+  if (pendingApproval) {
+    return (
+      <div className="relative flex h-screen w-full flex-col bg-slate-50 dark:bg-background-dark max-w-md mx-auto shadow-xl overflow-hidden">
+        <div className="flex items-center bg-slate-50 p-4 z-20">
+          <button
+            onClick={() => {
+              setPendingApproval(false);
+              groomingStoreAuthService.signOut();
+            }}
+            className="text-slate-600 flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-slate-200 transition-colors"
+          >
+            <span className="material-symbols-outlined">arrow_back</span>
+          </button>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-8 pb-20">
+          <div className="text-center">
+            <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-amber-100 mb-6">
+              <span className="material-symbols-outlined text-[48px] text-amber-600">hourglass_top</span>
+            </div>
+            <h1 className="text-2xl font-bold text-slate-800 mb-3">
+              Approval Pending
+            </h1>
+            <p className="text-slate-600 mb-2">
+              Welcome, <span className="font-semibold text-primary">{storeName}</span>!
+            </p>
+            <p className="text-slate-500 text-sm leading-relaxed mb-6">
+              Your grooming store registration is under review. Our admin team will verify your details and approve your account soon.
+            </p>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined text-amber-600 mt-0.5">info</span>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-amber-800">What happens next?</p>
+                  <ul className="text-xs text-amber-700 mt-2 space-y-1">
+                    <li>• Admin reviews your store information</li>
+                    <li>• You'll receive notification once approved</li>
+                    <li>• After approval, you can manage bookings</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setPendingApproval(false);
+                groomingStoreAuthService.signOut();
+              }}
+              className="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold h-12 rounded-xl transition-all"
+            >
+              Go Back
+            </button>
+
+            <p className="text-xs text-slate-400 mt-4">
+              Need help? Contact us at <a href="mailto:support@petvisit.com" className="text-primary">support@petvisit.com</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex h-screen w-full flex-col bg-slate-50 dark:bg-background-dark max-w-md mx-auto shadow-xl overflow-hidden">

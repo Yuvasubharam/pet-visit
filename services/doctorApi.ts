@@ -10,6 +10,19 @@ export const doctorAuthService = {
     });
 
     if (error) throw error;
+
+    // Verify doctor approval
+    if (data.user) {
+      const userType = data.user.user_metadata?.user_type;
+      
+      const profile = await this.getDoctorProfile(data.user.id);
+      if (!profile) {
+        await supabase.auth.signOut();
+        throw new Error('Doctor profile not found.');
+      }
+
+    }
+
     return data;
   },
 
@@ -863,15 +876,15 @@ export const prescriptionProductService = {
 
   async getProducts(filters?: { search?: string; category?: string }) {
     let query = supabase
-      .from('products')
+      .from('shop_products')
       .select('*');
 
     if (filters?.search) {
-      query = query.or(`name.ilike.%${filters.search}%,brand.ilike.%${filters.search}%,category.ilike.%${filters.search}%`);
+      query = query.or(`name.ilike.%${filters.search}%,category.ilike.%${filters.search}%`);
     }
 
     if (filters?.category && filters.category !== 'all') {
-      query = query.eq('main_category', filters.category);
+      query = query.eq('category', filters.category);
     }
 
     const { data, error } = await query

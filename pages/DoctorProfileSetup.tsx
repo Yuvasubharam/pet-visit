@@ -29,15 +29,23 @@ const DoctorProfileSetup: React.FC<DoctorProfileSetupProps> = ({ onBack, doctorI
 
     try {
       const profile = await doctorAuthService.getDoctorById(doctorId);
-      setDoctor(profile);
-      setFullName(profile.full_name);
-      setSpecialization(profile.specialization);
-      setPhone(profile.phone);
-      setClinicAddress(profile.clinic_address || '');
-      setClinicLatitude(profile.clinic_latitude || null);
-      setClinicLongitude(profile.clinic_longitude || null);
-    } catch (error) {
-      console.error('Error loading doctor profile:', error);
+      if (profile) {
+        setDoctor(profile);
+        setFullName(profile.full_name || '');
+        setSpecialization(profile.specialization || '');
+        setPhone(profile.phone || '');
+        setClinicAddress(profile.clinic_address || '');
+        setClinicLatitude(profile.clinic_latitude || null);
+        setClinicLongitude(profile.clinic_longitude || null);
+      }
+      // If no profile exists, form will be empty for new doctor to fill out
+    } catch (error: any) {
+      // PGRST116 means no rows found - this is expected for new doctors
+      if (error?.code === 'PGRST116') {
+        console.log('No existing doctor profile found - new doctor setup');
+      } else {
+        console.error('Error loading doctor profile:', error);
+      }
     }
   };
 
@@ -294,6 +302,39 @@ const DoctorProfileSetup: React.FC<DoctorProfileSetupProps> = ({ onBack, doctorI
                 className="w-full appearance-none rounded-xl bg-white dark:bg-surface-dark border-0 py-4 pl-12 pr-4 text-slate-900 dark:text-dark font-medium shadow-sm ring-1 ring-inset ring-gray-200 dark:ring-slate-700 focus:ring-2 focus:ring-primary placeholder:text-slate-400 transition-all outline-none resize-none"
                 placeholder="123 Pet Lane, Animal City, PC 90210"
               />
+            </div>
+          </div>
+
+          {/* Platform Fee Card */}
+          <div className="bg-white dark:bg-surface-dark p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-amber-600 text-xl">receipt_long</span>
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900 dark:text-dark">Platform Fee</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Deducted per consultation</p>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl text-center">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Online</p>
+                <p className="text-lg font-black text-amber-600">{doctor?.platform_fee_online || doctor?.margin_percentage || 0}%</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl text-center">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Home</p>
+                <p className="text-lg font-black text-amber-600">{doctor?.platform_fee_home || doctor?.margin_percentage || 0}%</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl text-center">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Clinic</p>
+                <p className="text-lg font-black text-amber-600">{doctor?.platform_fee_clinic || doctor?.margin_percentage || 0}%</p>
+              </div>
+            </div>
+            <div className="mt-3 flex items-start gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="material-symbols-outlined text-slate-400 text-sm mt-0.5">info</span>
+              <p>These percentages are deducted from each consultation. The remaining amount is credited to your earnings.</p>
             </div>
           </div>
 

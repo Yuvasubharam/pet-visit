@@ -5,6 +5,7 @@ interface Props {
   onNext: () => void;
   onLogin?: () => void;
   onDoctorLogin?: () => void;
+  onAdminLogin?: () => void;
 }
 
 interface Slide {
@@ -15,7 +16,7 @@ interface Slide {
   description: string;
 }
 
-const Onboarding: React.FC<Props> = ({ onNext, onLogin, onDoctorLogin }) => {
+const Onboarding: React.FC<Props> = ({ onNext, onLogin, onDoctorLogin, onAdminLogin }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
 
   const slides: Slide[] = [
@@ -127,6 +128,18 @@ const Onboarding: React.FC<Props> = ({ onNext, onLogin, onDoctorLogin }) => {
             <span className="flex items-center justify-center gap-2">
               <span className="material-symbols-outlined text-sm">stethoscope</span>
               Doctor Login
+            </span>
+          </button>
+        )}
+
+        {currentSlide === slides.length - 1 && onAdminLogin && (
+          <button
+            onClick={onAdminLogin}
+            className="w-full h-12 bg-gradient-to-r from-amber-500/10 to-orange-500/10 text-amber-700 font-bold text-sm rounded-2xl transition-transform active:scale-95 border border-amber-500/20"
+          >
+            <span className="flex items-center justify-center gap-2">
+              <span className="material-symbols-outlined text-sm filled">admin_panel_settings</span>
+              Admin Login
             </span>
           </button>
         )}

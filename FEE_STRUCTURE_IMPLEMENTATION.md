@@ -284,7 +284,7 @@ LEFT JOIN doctor_earnings de ON de.doctor_id = d.id
 GROUP BY d.id;
 ```
 
-### 2. `platform_analytics` View
+### 2. `platform_revenue_summary` View
 
 Shows platform income breakdown:
 ```sql

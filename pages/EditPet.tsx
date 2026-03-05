@@ -12,11 +12,15 @@ const EditPet: React.FC<Props> = ({ pet, onBack, onUpdate }) => {
   const [petData, setPetData] = useState<Partial<Pet>>({
     name: pet.name,
     species: pet.species,
-    image: pet.image
+    image: pet.image,
+    breed: pet.breed,
+    weight: pet.weight,
+    date_of_birth: pet.date_of_birth,
   });
   const [isVaccinated, setIsVaccinated] = useState<'yes' | 'no'>('yes');
-  const [selectedBreed, setSelectedBreed] = useState<string>('');
-  const [dateOfBirth, setDateOfBirth] = useState<string>('');
+  const [selectedBreed, setSelectedBreed] = useState<string>(pet.breed || '');
+  const [dateOfBirth, setDateOfBirth] = useState<string>(pet.date_of_birth || '');
+  const [weight, setWeight] = useState<string>(pet.weight ? pet.weight.toString() : '');
   const [uploadedImage, setUploadedImage] = useState<string | null>(pet.image);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -60,8 +64,33 @@ const EditPet: React.FC<Props> = ({ pet, onBack, onUpdate }) => {
 
   const currentBreeds = breedOptions[pet.species] || breedOptions['other'];
 
+  const calculateAge = (birthDate: string): number => {
+    if (!birthDate) return 0;
+    const today = new Date();
+    const birth = new Date(birthDate);
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
   const handleSave = () => {
-    onUpdate(pet.id, petData);
+    const age = calculateAge(dateOfBirth);
+    const petWeight = weight ? parseFloat(weight) : undefined;
+
+    const updates: Partial<Pet> = {
+      name: petData.name,
+      species: petData.species,
+      image: petData.image,
+      breed: selectedBreed || undefined,
+      age: age > 0 ? age : undefined,
+      weight: petWeight,
+      date_of_birth: dateOfBirth || undefined,
+    };
+
+    onUpdate(pet.id, updates);
   };
 
   return (
@@ -203,6 +232,19 @@ const EditPet: React.FC<Props> = ({ pet, onBack, onUpdate }) => {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-gray-900 ml-1">Weight (kg)</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              placeholder="5.5"
+              value={weight}
+              onChange={(e) => setWeight(e.target.value)}
+              className="w-full py-4 px-6 bg-white border border-gray-200 rounded-2xl text-sm font-medium focus:ring-primary focus:border-primary placeholder-gray-300"
+            />
           </div>
 
           <div className="space-y-3 pt-2">

@@ -34,11 +34,17 @@ interface Props {
   userId?: string | null;
   defaultAddress?: Address;
   onProceedToCheckout?: (bookingData: BookingData) => void;
+  reschedulingBooking?: any; // Booking being rescheduled
 }
 
-const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, defaultAddress, onProceedToCheckout }) => {
-  const [selectedPet, setSelectedPet] = useState<string>(pets[0]?.id || '');
-  const [visitType, setVisitType] = useState<'home' | 'clinic'>('home');
+const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, defaultAddress, onProceedToCheckout, reschedulingBooking }) => {
+  const [selectedPet, setSelectedPet] = useState<string>(
+    reschedulingBooking?.pet_id || pets[0]?.id || ''
+  );
+  const [visitType, setVisitType] = useState<'home' | 'clinic'>(
+    reschedulingBooking?.booking_type === 'clinic' ? 'clinic' : 'home'
+  );
+  const [isRescheduling] = useState<boolean>(!!reschedulingBooking);
   const [selectedDoc, setSelectedDoc] = useState(0);
   const [selectedTime, setSelectedTime] = useState('10:00 AM');
   const [showAddressDropdown, setShowAddressDropdown] = useState(false);
@@ -50,6 +56,7 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
   const [loadingDoctors, setLoadingDoctors] = useState(true);
   const [availableTimeSlots, setAvailableTimeSlots] = useState<string[]>([]);
   const [visitReason, setVisitReason] = useState<string>('General Health Check');
+  // Platform fee is collected from doctors, not users
 
   // Generate dates starting from today (30 days for scrollable calendar)
   const today = new Date();
@@ -101,15 +108,29 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
       const dateStr = selectedDate.toISOString().split('T')[0];
       const slotType = visitType === 'home' ? 'home' : 'clinic';
 
-      console.log('[HomeConsultBooking] Loading doctors for:', { slotType, dateStr });
+      console.log('[HomeConsultBooking] Loading doctors for:', { slotType, dateStr, isRescheduling });
 
-      const availableDoctors = await doctorAuthService.getAvailableDoctors({
-        slot_type: slotType,
-        date: dateStr,
-      });
+      // If rescheduling, only load the specific doctor
+      if (isRescheduling && reschedulingBooking?.doctor_id) {
+        console.log('[HomeConsultBooking] Rescheduling mode - loading specific doctor:', reschedulingBooking.doctor_id);
 
-      console.log('[HomeConsultBooking] Doctors loaded:', availableDoctors?.length || 0);
-      setDoctors(availableDoctors);
+        const doctor = await doctorAuthService.getDoctorById(reschedulingBooking.doctor_id);
+        if (doctor) {
+          setDoctors([doctor]);
+          setSelectedDoc(0);
+        } else {
+          console.error('[HomeConsultBooking] Could not find doctor for rescheduling');
+          setDoctors([]);
+        }
+      } else {
+        // Normal booking - load all available doctors
+        const availableDoctors = await doctorAuthService.getAvailableDoctors({
+          slot_type: slotType,
+          date: dateStr,
+        });
+        console.log('[HomeConsultBooking] Doctors loaded:', availableDoctors?.length || 0);
+        setDoctors(availableDoctors);
+      }
     } catch (error) {
       console.error('[HomeConsultBooking] Error loading doctors:', error);
       console.error('[HomeConsultBooking] Error details:', JSON.stringify(error, null, 2));
@@ -139,9 +160,32 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
 
       if (error) throw error;
 
+      // Check if selected date is today
+      const isToday = selectedDateIndex === 0;
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+
       // Filter slots where booked_count < capacity and convert to 12-hour format
       const times = (data || [])
-        .filter((slot: any) => slot.booked_count < slot.capacity)
+        .filter((slot: any) => {
+          // Filter out booked slots
+          if (slot.booked_count >= slot.capacity) return false;
+
+          // If today, filter out past time slots
+          if (isToday) {
+            const [hours, minutes] = slot.start_time.split(':');
+            const slotHour = parseInt(hours);
+            const slotMinute = parseInt(minutes);
+
+            // Skip if slot time has passed
+            if (slotHour < currentHour || (slotHour === currentHour && slotMinute <= currentMinute)) {
+              return false;
+            }
+          }
+
+          return true;
+        })
         .map((slot: any) => {
           const [hours, minutes] = slot.start_time.split(':');
           const hour = parseInt(hours);
@@ -295,12 +339,12 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
 
     const selectedDoctor = doctors[selectedDoc];
 
-    // Calculate fee structure
+    // Calculate fee structure - no platform fee for users
+    // Platform fee is deducted from doctor's earnings
     const serviceFee = visitType === 'home'
       ? (selectedDoctor?.fee_home_visit || 850)
       : (selectedDoctor?.fee_clinic_visit || 500);
-    const platformFee = serviceFee * 0.05; // 5% platform margin
-    const totalAmount = serviceFee + platformFee;
+    const totalAmount = serviceFee; // User only pays service fee
 
     const bookingData: BookingData = {
       type: 'consultation',
@@ -316,7 +360,7 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
       notes: visitReason, // Use the selected visit reason
       amount: serviceFee, // Doctor's service fee
       serviceFee: serviceFee, // Explicit service fee
-      platformFee: platformFee, // Platform's 5% margin
+      platformFee: 0, // No platform fee for users
       totalAmount: totalAmount, // Total to be paid by user
       serviceName: visitType === 'home' ? 'Home Visit Consultation' : 'Clinic Visit Consultation',
     };
@@ -341,7 +385,7 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
           <span className="material-symbols-outlined">arrow_back</span>
         </div>
         <h2 className="text-primary text-xl font-extrabold tracking-tight flex-1 text-center font-display">
-          Doctor Consultation
+          {isRescheduling ? 'Reschedule Appointment' : 'Doctor Consultation'}
         </h2>
         <div className="size-10"></div>
       </div>
@@ -351,14 +395,14 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
         <div className="px-6 py-4 bg-white shadow-sm">
           <div className="flex h-12 w-full items-center justify-center rounded-2xl bg-gray-100 p-1">
             <button
-              onClick={() => setVisitType('home')}
-              className={`flex-1 h-full rounded-xl text-xs font-black uppercase tracking-widest transition-all ${visitType === 'home' ? 'bg-primary text-white shadow-lg' : 'text-gray-400'}`}
+              onClick={() => !isRescheduling && setVisitType('home')}
+              className={`flex-1 h-full rounded-xl text-xs font-black uppercase tracking-widest transition-all ${isRescheduling ? 'cursor-not-allowed opacity-60' : ''} ${visitType === 'home' ? 'bg-primary text-white shadow-lg' : 'text-gray-400'}`}
             >
               Home Visit
             </button>
             <button
-              onClick={() => setVisitType('clinic')}
-              className={`flex-1 h-full rounded-xl text-xs font-black uppercase tracking-widest transition-all ${visitType === 'clinic' ? 'bg-primary text-white shadow-lg' : 'text-gray-400'}`}
+              onClick={() => !isRescheduling && setVisitType('clinic')}
+              className={`flex-1 h-full rounded-xl text-xs font-black uppercase tracking-widest transition-all ${isRescheduling ? 'cursor-not-allowed opacity-60' : ''} ${visitType === 'clinic' ? 'bg-primary text-white shadow-lg' : 'text-gray-400'}`}
             >
               Clinic Visit
             </button>
@@ -544,9 +588,20 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
         {/* Doctor Selection */}
         <div className="flex flex-col w-full px-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-gray-900 text-lg font-black tracking-tight">Available Specialists</h3>
-            <button className="text-primary font-black text-[10px] uppercase tracking-widest">See All</button>
+            <h3 className="text-gray-900 text-lg font-black tracking-tight">
+              {isRescheduling ? 'Your Doctor' : 'Available Specialists'}
+            </h3>
+            {!isRescheduling && (
+              <button className="text-primary font-black text-[10px] uppercase tracking-widest">See All</button>
+            )}
           </div>
+          {isRescheduling && (
+            <div className="mb-3 px-4 py-2 bg-blue-50 border border-blue-200 rounded-xl">
+              <p className="text-blue-700 text-xs font-semibold">
+                📅 Rescheduling with the same doctor
+              </p>
+            </div>
+          )}
           {loadingDoctors ? (
             <div className="flex items-center justify-center py-20">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -562,8 +617,8 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
               {doctors.map((doc, i) => (
                 <div
                   key={doc.id}
-                  onClick={() => setSelectedDoc(i)}
-                  className={`min-w-[260px] p-5 rounded-[32px] border transition-all cursor-pointer ${selectedDoc === i ? 'border-primary bg-primary/5 shadow-xl ring-4 ring-primary/5' : 'border-gray-100 bg-white opacity-80'}`}
+                  onClick={() => !isRescheduling && setSelectedDoc(i)}
+                  className={`min-w-[260px] p-5 rounded-[32px] border transition-all ${isRescheduling ? 'cursor-default' : 'cursor-pointer'} ${selectedDoc === i ? 'border-primary bg-primary/5 shadow-xl ring-4 ring-primary/5' : 'border-gray-100 bg-white opacity-80'}`}
                 >
                   <div className="flex items-start gap-4">
                     <div className="w-16 h-16 rounded-[24px] overflow-hidden border-2 border-white shadow-md">
@@ -614,17 +669,19 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
               <h3 className="text-gray-900 text-lg font-black tracking-tight">Select Slot</h3>
               <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{getMonthYear(today)}</div>
             </div>
-            <div className="flex overflow-x-auto no-scrollbar gap-3 py-1">
-              {dateSlots.map((date, i) => (
-                <div
-                  key={i}
-                  onClick={() => setSelectedDateIndex(i)}
-                  className={`flex flex-col items-center justify-center min-w-[64px] h-[80px] rounded-2xl transition-all cursor-pointer border ${selectedDateIndex === i ? 'bg-primary text-white border-primary shadow-2xl scale-110' : 'bg-white border-gray-100 text-gray-400'}`}
-                >
-                  <span className="text-[10px] font-black uppercase mb-1">{getDayName(date, i)}</span>
-                  <span className="text-xl font-black">{date.getDate()}</span>
-                </div>
-              ))}
+            <div className="overflow-x-auto -mx-6 px-6">
+              <div className="flex gap-3 py-1 w-max">
+                {dateSlots.map((date, i) => (
+                  <div
+                    key={i}
+                    onClick={() => setSelectedDateIndex(i)}
+                    className={`flex flex-col items-center justify-center min-w-[64px] h-[80px] rounded-2xl transition-all cursor-pointer border flex-shrink-0 ${selectedDateIndex === i ? 'bg-primary text-white border-primary shadow-2xl scale-110' : 'bg-white border-gray-100 text-gray-400'}`}
+                  >
+                    <span className="text-[10px] font-black uppercase mb-1">{getDayName(date, i)}</span>
+                    <span className="text-xl font-black">{date.getDate()}</span>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-3 pt-4">
               {availableTimeSlots.length === 0 ? (
@@ -652,7 +709,7 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
       <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-6 bg-white/95 backdrop-blur-xl border-t border-gray-100 z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
         <div className="flex items-center justify-between mb-4">
           <div className="flex flex-col">
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Total Cost (incl. fees)</span>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Consultation Fee</span>
             <span className="text-3xl font-black text-primary tracking-tighter leading-none">
               ₹{(() => {
                 const serviceFee = doctors.length > 0 && doctors[selectedDoc]
@@ -660,8 +717,7 @@ const HomeConsultBooking: React.FC<Props> = ({ pets, onBack, onBook, userId, def
                     ? (doctors[selectedDoc].fee_home_visit || 850)
                     : (doctors[selectedDoc].fee_clinic_visit || 500)
                   : visitType === 'home' ? 850 : 500;
-                const total = serviceFee * 1.05; // Add 5% platform fee
-                return total.toFixed(2);
+                return serviceFee.toFixed(2);
               })()}
             </span>
           </div>

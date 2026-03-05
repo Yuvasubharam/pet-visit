@@ -191,14 +191,14 @@ const OrderDetailsPage: React.FC<Props> = ({ onBack, onHomeClick, onVisitsClick,
                 <div key={item.id} className="p-4 flex gap-4">
                   <div className="w-20 h-20 shrink-0 bg-background-light rounded-xl p-2 flex items-center justify-center">
                     <img
-                      alt={item.products?.name || 'Product'}
+                      alt={item.shop_products?.name || 'Product'}
                       className="w-full h-full object-contain"
-                      src={item.products?.image || 'https://via.placeholder.com/80'}
+                      src={item.shop_products?.main_image || 'https://via.placeholder.com/80'}
                     />
                   </div>
                   <div className="flex-1 flex flex-col justify-center">
-                    <p className="text-[10px] text-primary font-bold uppercase mb-0.5">{item.products?.brand || 'Brand'}</p>
-                    <p className="text-sm font-bold text-[#111418] line-clamp-2 leading-tight">{item.products?.name || 'Product'}</p>
+                    <p className="text-[10px] text-primary font-bold uppercase mb-0.5">{item.shop_products?.category || 'Category'}</p>
+                    <p className="text-sm font-bold text-[#111418] line-clamp-2 leading-tight">{item.shop_products?.name || 'Product'}</p>
                     <div className="flex justify-between items-end mt-2">
                       <p className="text-xs font-medium text-gray-500">Qty: {item.quantity}</p>
                       <p className="text-sm font-bold text-[#111418]">₹{(item.price * item.quantity).toFixed(2)}</p>

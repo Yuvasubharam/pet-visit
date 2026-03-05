@@ -193,15 +193,16 @@ export const authService = {
     return data;
   },
 
-  async createOrUpdateUserProfile(userId: string, userData: { name: string; email?: string; phone?: string; profile_photo_url?: string }) {
+  async createOrUpdateUserProfile(userId: string, userData: { name: string; email?: string; phone?: string; profile_photo_url?: string; role?: string }) {
     const { data, error } = await supabase
       .from('users')
       .upsert({
         id: userId,
         name: userData.name,
         email: userData.email || null,
-        phone: userData.phone || '',
+        phone: userData.phone || null, // Changed from '' to null to avoid unique constraint violation
         profile_photo_url: userData.profile_photo_url || null,
+        role: userData.role || 'user', // Default to 'user' role
       })
       .select()
       .single();
@@ -275,6 +276,7 @@ export const petService = {
         breed: pet.breed || null,
         age: pet.age || null,
         weight: pet.weight || null,
+        date_of_birth: pet.date_of_birth || null,
       })
       .select()
       .single();
@@ -292,6 +294,7 @@ export const petService = {
     if (updates.breed !== undefined) updateData.breed = updates.breed || null;
     if (updates.age !== undefined) updateData.age = updates.age || null;
     if (updates.weight !== undefined) updateData.weight = updates.weight || null;
+    if (updates.date_of_birth !== undefined) updateData.date_of_birth = updates.date_of_birth || null;
 
     const { data, error } = await supabase
       .from('pets')
@@ -472,7 +475,7 @@ export const bookingService = {
   },
 
   async updatePaymentStatus(bookingId: string, paymentStatus: 'pending' | 'paid' | 'failed') {
-    const { data, error } = await supabase
+    const { data, error} = await supabase
       .from('bookings')
       .update({ payment_status: paymentStatus })
       .eq('id', bookingId)
@@ -481,6 +484,61 @@ export const bookingService = {
 
     if (error) throw error;
     return data;
+  },
+
+  async rescheduleBooking(bookingId: string, newDate: string, newTime: string) {
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({
+        date: newDate,
+        time: newTime,
+        status: 'upcoming' // Reset status to upcoming
+      })
+      .eq('id', bookingId)
+      .select('*, pets(*), addresses(*), users(*), doctors(*), grooming_stores(*)')
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async cancelBooking(bookingId: string) {
+    // First, get the booking to check creation time
+    const { data: booking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('created_at')
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError) throw fetchError;
+    if (!booking) throw new Error('Booking not found');
+
+    // Calculate time difference in hours
+    const createdAt = new Date((booking as any).created_at);
+    const now = new Date();
+    const hoursDifference = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+
+    // If booking was created within 3 hours, delete it
+    if (hoursDifference <= 3) {
+      const { error: deleteError } = await supabase
+        .from('bookings')
+        .delete()
+        .eq('id', bookingId);
+
+      if (deleteError) throw deleteError;
+      return { deleted: true, message: 'Booking cancelled and deleted successfully' };
+    } else {
+      // Otherwise, just update status to cancelled
+      const { data, error: updateError } = await (supabase as any)
+        .from('bookings')
+        .update({ status: 'cancelled' })
+        .eq('id', bookingId)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+      return { deleted: false, message: 'Booking cancelled successfully', data };
+    }
   }
 };
 
@@ -648,37 +706,24 @@ export const groomingService = {
       throw error;
     }
     return data;
-  }
-};
-
-// Product Services
-export const productService = {
-  async getAllProducts() {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data;
   },
 
-  async getProductsByCategory(category: string) {
+  async rescheduleGroomingBooking(bookingId: string, newDate: string, newTime: string) {
     const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('category', category)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data;
-  },
-
-  async getProduct(productId: string) {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', productId)
+      .from('bookings')
+      .update({
+        date: newDate,
+        time: newTime,
+        status: 'upcoming'
+      })
+      .eq('id', bookingId)
+      .select(`
+        *,
+        pets (*),
+        addresses (*),
+        grooming_packages:grooming_package_id (*),
+        grooming_stores:grooming_store_id (*)
+      `)
       .single();
 
     if (error) throw error;
@@ -686,19 +731,175 @@ export const productService = {
   }
 };
 
+// Product Services
+export const productService = {
+  async getAllProducts() {
+    try {
+      const { data: shopProducts, error: shopError } = await supabase
+        .from('shop_products')
+        .select(`
+          id,
+          name,
+          description,
+          category,
+          base_price,
+          sale_price,
+          stock_quantity,
+          main_image,
+          pet_types,
+          product_variations (id, sale_price, price_adjustment)
+        `)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (shopError && shopError.code !== 'PGRST116') throw shopError;
+
+      return (shopProducts || []).map((p: any) => {
+        const hasVariations = p.product_variations && p.product_variations.length > 0;
+        let displayPrice = p.base_price;
+        let displaySalePrice = p.sale_price;
+
+        if (hasVariations) {
+          // Find minimum price among variations
+          const prices = p.product_variations.map((v: any) => {
+            if (v.sale_price && v.sale_price > 0) return v.sale_price;
+            return p.base_price + (v.price_adjustment || 0);
+          });
+          displayPrice = Math.min(...prices);
+          displaySalePrice = undefined; // Don't show sale badge if it's "Starting from"
+        }
+
+        return {
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          category: p.category,
+          price: displayPrice,
+          sale_price: displaySalePrice,
+          stock: p.stock_quantity,
+          image: p.main_image,
+          pet_types: p.pet_types,
+          seller_type: 'admin',
+          brand: 'Shop',
+          has_variations: hasVariations
+        };
+      });
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      return [];
+    }
+  },
+
+  async getProductsByCategory(category: string) {
+    try {
+      const { data: shopProducts, error: shopError } = await supabase
+        .from('shop_products')
+        .select(`
+          id,
+          name,
+          description,
+          category,
+          base_price,
+          sale_price,
+          stock_quantity,
+          main_image,
+          pet_types,
+          product_variations (id, sale_price, price_adjustment)
+        `)
+        .eq('category', category)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (shopError && shopError.code !== 'PGRST116') throw shopError;
+
+      return (shopProducts || []).map((p: any) => {
+        const hasVariations = p.product_variations && p.product_variations.length > 0;
+        let displayPrice = p.base_price;
+        let displaySalePrice = p.sale_price;
+
+        if (hasVariations) {
+          // Find minimum price among variations
+          const prices = p.product_variations.map((v: any) => {
+            if (v.sale_price && v.sale_price > 0) return v.sale_price;
+            return p.base_price + (v.price_adjustment || 0);
+          });
+          displayPrice = Math.min(...prices);
+          displaySalePrice = undefined; // Don't show sale badge if it's "Starting from"
+        }
+
+        return {
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          category: p.category,
+          price: displayPrice,
+          sale_price: displaySalePrice,
+          stock: p.stock_quantity,
+          image: p.main_image,
+          pet_types: p.pet_types,
+          seller_type: 'admin',
+          brand: 'Shop',
+          has_variations: hasVariations
+        };
+      });
+    } catch (error) {
+      console.error('Error fetching products by category:', error);
+      return [];
+    }
+  },
+
+  async getProduct(productId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('shop_products')
+        .select(`
+          id,
+          name,
+          description,
+          category,
+          base_price,
+          sale_price,
+          stock_quantity,
+          main_image,
+          pet_types
+        `)
+        .eq('id', productId)
+        .single();
+
+      if (error) throw error;
+      return {
+        id: data.id,
+        name: data.name,
+        description: data.description,
+        category: data.category,
+        price: data.sale_price || data.base_price,
+        stock: data.stock_quantity,
+        image: data.main_image,
+        pet_types: data.pet_types,
+        seller_type: 'admin',
+        brand: 'Shop'
+      };
+    } catch (error) {
+      console.error('Error fetching product:', error);
+      return null;
+    }
+  }
+};
+
 // Cart Services
 export const cartService = {
   async getCartItems(userId: string) {
+    // First try with variation_id support
     const { data, error } = await supabase
       .from('cart_items')
       .select(`
         *,
-        products (
+        shop_products (
           id,
           name,
-          brand,
-          price,
-          image,
+          base_price,
+          sale_price,
+          main_image,
           category
         )
       `)
@@ -708,22 +909,62 @@ export const cartService = {
       console.error('Error fetching cart items:', error);
       throw error;
     }
+
+    // For items with variation_id, fetch variation details separately
+    if (data && data.length > 0) {
+      const itemsWithVariations = data.filter((item: any) => item.variation_id);
+      if (itemsWithVariations.length > 0) {
+        const variationIds = itemsWithVariations.map((item: any) => item.variation_id);
+        const { data: variations } = await supabase
+          .from('product_variations')
+          .select('id, variation_name, variation_value, sale_price, price_adjustment')
+          .in('id', variationIds);
+
+        // Attach variations to items
+        if (variations) {
+          data.forEach((item: any) => {
+            if (item.variation_id) {
+              item.product_variations = variations.find((v: any) => v.id === item.variation_id);
+            }
+          });
+        }
+      }
+    }
+
     return data;
   },
 
-  async addToCart(userId: string, productId: string, quantity: number = 1) {
-    // Check if item already exists - use maybeSingle() to avoid 406 error when no rows exist
-    const { data: existing, error: checkError } = await supabase
+  async addToCart(userId: string, productId: string, quantity: number = 1, variationId?: string) {
+    // Check if item already exists
+    let query = supabase
       .from('cart_items')
       .select('*')
       .eq('user_id', userId)
-      .eq('product_id', productId)
-      .maybeSingle();
+      .eq('product_id', productId);
+
+    // Check for matching variation if provided
+    if (variationId) {
+      query = query.eq('variation_id', variationId);
+    } else {
+      // For items without variation, check for null variation_id
+      query = query.is('variation_id', null);
+    }
+
+    const { data: existingItems, error: checkError } = await query;
 
     // Ignore PGRST116 error (no rows returned), but throw other errors
-    if (checkError && checkError.code !== 'PGRST116') {
+    // Also ignore 42703 error (column doesn't exist) for backwards compatibility
+    if (checkError && checkError.code !== 'PGRST116' && checkError.code !== '42703') {
       throw checkError;
     }
+
+    // Find existing item (handle case where variation_id column may not exist)
+    const existing = existingItems?.find((item: any) => {
+      if (variationId) {
+        return item.variation_id === variationId;
+      }
+      return !item.variation_id;
+    });
 
     if (existing) {
       // Update quantity
@@ -738,13 +979,19 @@ export const cartService = {
       return data;
     } else {
       // Add new item
+      const insertData: any = {
+        user_id: userId,
+        product_id: productId,
+        quantity,
+      };
+
+      if (variationId) {
+        insertData.variation_id = variationId;
+      }
+
       const { data, error } = await supabase
         .from('cart_items')
-        .insert({
-          user_id: userId,
-          product_id: productId,
-          quantity,
-        })
+        .insert(insertData)
         .select()
         .single();
 
@@ -793,7 +1040,14 @@ export const orderService = {
         *,
         order_items (
           *,
-          products (*)
+          shop_products (
+            id,
+            name,
+            category,
+            main_image,
+            base_price,
+            sale_price
+          )
         ),
         addresses (*)
       `)
@@ -811,7 +1065,14 @@ export const orderService = {
         *,
         order_items (
           *,
-          products (*)
+          shop_products (
+            id,
+            name,
+            category,
+            main_image,
+            base_price,
+            sale_price
+          )
         ),
         addresses (*)
       `)
@@ -831,6 +1092,7 @@ export const orderService = {
     tax: number;
     discount: number;
     total: number;
+    marginPercentage?: number;
   }) {
     // Generate order number
     const orderNumber = `TRX-${Math.floor(Math.random() * 900000 + 100000)}`;
@@ -856,16 +1118,25 @@ export const orderService = {
     if (orderError) throw orderError;
 
     // Create order items
-    const orderItems = orderData.items.map(item => ({
-      order_id: order.id,
-      product_id: item.productId,
-      quantity: item.quantity,
-      price: item.price,
-    }));
+    // Note: seller_id can be added later when multi-seller is implemented
+    const orderItems = orderData.items.map(item => {
+      // Use provided margin or default to 10%
+      const marginPct = orderData.marginPercentage !== undefined ? orderData.marginPercentage * 100 : 10.0;
+      const adminMarginAmount = (item.price * item.quantity * marginPct) / 100;
+
+      return {
+        order_id: order.id,
+        product_id: item.productId,
+        quantity: item.quantity,
+        price: item.price,
+        admin_margin_amount: adminMarginAmount,
+        fulfillment_status: 'pending'
+      };
+    });
 
     const { error: itemsError } = await supabase
       .from('order_items')
-      .insert(orderItems);
+      .insert(orderItems as any);
 
     if (itemsError) throw itemsError;
 
@@ -897,5 +1168,96 @@ export const orderService = {
 
     if (error) throw error;
     return data;
+  }
+};
+
+// Notification Services
+export const notificationService = {
+  async createNotification(notificationData: {
+    userId: string;
+    bookingId?: string;
+    type: string;
+    title: string;
+    message: string;
+  }) {
+    const { data, error } = await supabase
+      .from('notifications')
+      .insert({
+        user_id: notificationData.userId,
+        booking_id: notificationData.bookingId || null,
+        type: notificationData.type,
+        title: notificationData.title,
+        message: notificationData.message,
+        read: false,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async getUserNotifications(userId: string) {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data;
+  },
+
+  async markAsRead(notificationId: string) {
+    const { data, error } = await supabase
+      .from('notifications')
+      .update({ read: true, updated_at: new Date().toISOString() })
+      .eq('id', notificationId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async markAllAsRead(userId: string) {
+    const { data, error } = await supabase
+      .from('notifications')
+      .update({ read: true, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('read', false)
+      .select();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async getUnreadCount(userId: string) {
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('read', false);
+
+    if (error) throw error;
+    return count || 0;
+  },
+
+  async deleteNotification(notificationId: string) {
+    const { error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('id', notificationId);
+
+    if (error) throw error;
+  },
+
+  async clearAllNotifications(userId: string) {
+    const { error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('user_id', userId);
+
+    if (error) throw error;
   }
 };

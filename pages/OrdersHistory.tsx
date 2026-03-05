@@ -44,10 +44,10 @@ const OrdersHistory: React.FC<Props> = ({ onBack, onOrderClick, onHomeClick, onV
       console.log('OrdersHistory - Received orders:', data);
 
       const mappedOrders: OrderDisplay[] = (data || []).map((order: any) => {
-        // Get product images from order items
+        // Get product images from order items (using shop_products)
         const images = (order.order_items || [])
           .slice(0, 2)
-          .map((item: any) => item.products?.image || '')
+          .map((item: any) => item.shop_products?.main_image || '')
           .filter((img: string) => img);
 
         const moreCount = Math.max(0, (order.order_items?.length || 0) - 2);

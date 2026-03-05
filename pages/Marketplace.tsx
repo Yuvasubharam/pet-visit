@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Product } from '../types';
+import { Product, ProductVariation } from '../types';
 import { productService, cartService } from '../services/api';
+import { adminProductService } from '../services/adminApi';
+import ProductDetail from './ProductDetail';
 
 interface Props {
     onBack: () => void;
@@ -13,12 +15,20 @@ interface Props {
     onProfileClick?: () => void;
 }
 
+// Extended product type with sale price info
+interface ExtendedProduct extends Product {
+    sale_price?: number;
+    has_variations?: boolean;
+}
+
 const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCategory, onHomeClick, onVisitsClick, onProfileClick }) => {
-    const [products, setProducts] = useState<Product[]>([]);
+    const [products, setProducts] = useState<ExtendedProduct[]>([]);
     const [cartItems, setCartItems] = useState<{[key: string]: number}>({});
     const [isLoading, setIsLoading] = useState(true);
     const [selectedCategory, setSelectedCategory] = useState(initialCategory || 'All');
     const [selectedPetType, setSelectedPetType] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedProduct, setSelectedProduct] = useState<ExtendedProduct | null>(null);
 
     useEffect(() => {
         loadProducts();
@@ -27,27 +37,54 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
         }
     }, [userId, selectedCategory, selectedPetType]);
 
+    if (selectedProduct) {
+        return (
+            <ProductDetail 
+                product={selectedProduct} 
+                onBack={() => setSelectedProduct(null)} 
+                onCartClick={onCartClick}
+                userId={userId}
+            />
+        );
+    }
+
     const loadProducts = async () => {
         try {
             setIsLoading(true);
+            console.log('[Marketplace] Loading products - category:', selectedCategory);
             let data = selectedCategory === 'All'
                 ? await productService.getAllProducts()
                 : await productService.getProductsByCategory(selectedCategory);
+            console.log('[Marketplace] Loaded:', data?.length || 0, 'products');
 
             // Filter by pet type if not 'all'
             if (selectedPetType !== 'all') {
-                data = (data || []).filter(product =>
-                    product.pet === selectedPetType || product.pet === 'all'
-                );
+                data = (data || []).filter(product => {
+                    // Check traditional products with pet field
+                    if (product.pet) {
+                        return product.pet === selectedPetType || product.pet === 'all';
+                    }
+                    // Check shop products with pet_types array
+                    if (product.pet_types && Array.isArray(product.pet_types)) {
+                        return product.pet_types.includes(selectedPetType) || product.pet_types.includes('all');
+                    }
+                    return true;
+                });
             }
 
             setProducts(data || []);
         } catch (error) {
-            console.error('Error loading products:', error);
+            console.error('[Marketplace] Error loading products:', error);
+            setProducts([]);
         } finally {
             setIsLoading(false);
         }
     };
+
+    const filteredProducts = products.filter(product =>
+        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.brand?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
     const loadCart = async () => {
         if (!userId) return;
@@ -56,7 +93,8 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
             const data = await cartService.getCartItems(userId);
             const cartMap: {[key: string]: number} = {};
             (data || []).forEach((item: any) => {
-                cartMap[item.product_id] = item.quantity;
+                // Sum up quantities for the same product_id (regardless of variation)
+                cartMap[item.product_id] = (cartMap[item.product_id] || 0) + item.quantity;
             });
             setCartItems(cartMap);
         } catch (error) {
@@ -170,8 +208,18 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                     <input
                         type="text"
                         placeholder="Find the best for your pet..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full py-4 pl-12 pr-14 bg-white border-none rounded-[20px] shadow-sm focus:ring-2 focus:ring-primary/20 text-sm font-medium transition-all"
                     />
+                    {searchQuery && (
+                        <button 
+                            onClick={() => setSearchQuery('')}
+                            className="absolute right-14 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">close</span>
+                        </button>
+                    )}
                     <button className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400 hover:text-primary">
                         <span className="material-symbols-outlined text-[20px]">tune</span>
                     </button>
@@ -185,10 +233,12 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                             { id: 'all', name: 'All Pets', icon: 'pets' },
                             { id: 'dog', name: 'Dogs', icon: 'pets' },
                             { id: 'cat', name: 'Cats', icon: 'pets' },
-                            { id: 'rabbits', name: 'Rabbits', icon: 'cruelty_free' },
-                            { id: 'turtles', name: 'Turtles', icon: 'emoji_nature' },
-                            { id: 'birds', name: 'Birds', icon: 'flutter' },
-                            { id: 'other', name: 'Others', icon: 'category' }
+                            { id: 'rabbit', name: 'Rabbits', icon: 'cruelty_free' },
+                            { id: 'turtle', name: 'Turtles', icon: 'emoji_nature' },
+                            { id: 'bird', name: 'Birds', icon: 'flutter' },
+                            { id: 'guinea_pig', name: 'Guinea Pigs', icon: 'cruelty_free' },
+                            { id: 'hamster', name: 'Hamsters', icon: 'cruelty_free' },
+                            { id: 'fish', name: 'Fish', icon: 'water' }
                         ].map((petType) => (
                             <button
                                 key={petType.id}
@@ -222,10 +272,12 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                             <span className="text-xs font-black uppercase tracking-widest">All</span>
                         </button>
                         {[
-                            { name: 'Food', icon: 'restaurant' },
+                            { name: 'Pet Food', icon: 'restaurant' },
                             { name: 'Toys', icon: 'videogame_asset' },
-                            { name: 'Care', icon: 'spa' },
-                            { name: 'Medicine', icon: 'medical_services' }
+                            { name: 'Accessories', icon: 'spa' },
+                            { name: 'Grooming', icon: 'medical_services' },
+                            { name: 'Medicine', icon: 'healing' },
+                            { name: 'Bedding', icon: 'hotel' }
                         ].map((cat) => (
                             <button
                                 key={cat.name}
@@ -260,29 +312,39 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                 <div className="space-y-6">
                     <div className="flex justify-between items-end">
                         <h3 className="text-2xl font-black text-primary tracking-tight">Products</h3>
-                        <p className="text-gray-500 text-xs font-medium">{products.length} items</p>
+                        <p className="text-gray-500 text-xs font-medium">{filteredProducts.length} items</p>
                     </div>
                     {isLoading ? (
                         <div className="flex justify-center items-center py-12">
                             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
                         </div>
-                    ) : products.length === 0 ? (
+                    ) : filteredProducts.length === 0 ? (
                         <div className="text-center py-12">
                             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <span className="material-symbols-outlined text-gray-400 text-4xl">inventory_2</span>
                             </div>
                             <p className="text-gray-600 font-bold mb-2">No products found</p>
-                            <p className="text-gray-400 text-sm">Try a different category</p>
+                            <p className="text-gray-400 text-sm">Try a different search or category</p>
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 gap-6">
-                            {products.map((product) => {
+                            {filteredProducts.map((product) => {
                                 const quantity = getItemQuantity(product.id);
                                 return (
-                                    <div key={product.id} className="bg-white rounded-[32px] p-4 shadow-md hover:shadow-xl transition-all group flex flex-col border border-gray-50">
+                                    <div 
+                                        key={product.id} 
+                                        onClick={() => setSelectedProduct(product)}
+                                        className="bg-white rounded-[32px] p-4 shadow-md hover:shadow-xl transition-all group flex flex-col border border-gray-50 cursor-pointer"
+                                    >
                                         <div className="relative aspect-square bg-gray-50 rounded-[24px] mb-4 flex items-center justify-center overflow-hidden group-hover:bg-primary/5 transition-colors">
                                             <img src={product.image} className="object-contain w-3/4 h-3/4 group-hover:scale-110 transition-transform duration-500" alt={product.name} />
-                                            <button className="absolute top-3 right-3 w-9 h-9 bg-white shadow-md rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors">
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    // Handle favorite logic
+                                                }}
+                                                className="absolute top-3 right-3 w-9 h-9 bg-white shadow-md rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors"
+                                            >
                                                 <span className="material-symbols-outlined text-[20px] fill-current">favorite</span>
                                             </button>
                                             {product.stock !== undefined && product.stock < 10 && product.stock > 0 && (
@@ -301,26 +363,56 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                                                 </div>
                                             )}
                                             <div className="mt-auto flex items-center justify-between gap-2">
-                                                <span className="text-lg font-black text-gray-900">₹{product.price.toFixed(2)}</span>
-                                                {quantity === 0 ? (
+                                                {/* Price Display - Show sale price with MRP crossed if available */}
+                                                <div className="flex flex-col">
+                                                    {product.sale_price && product.sale_price < product.price ? (
+                                                        <>
+                                                            <span className="text-lg font-black text-gray-900">₹{product.sale_price.toFixed(0)}</span>
+                                                            <span className="text-xs text-gray-400 line-through">₹{product.price.toFixed(0)}</span>
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-lg font-black text-gray-900">₹{product.price.toFixed(0)}</span>
+                                                    )}
+                                                </div>
+                                                {/* For variable products, always show cart icon to open detail page */}
+                                                {product.has_variations ? (
                                                     <button
-                                                        onClick={() => handleAddToCart(product.id)}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedProduct(product);
+                                                        }}
+                                                        className="w-9 h-9 bg-gray-900 text-white rounded-xl flex items-center justify-center shadow-lg hover:bg-primary transition-all active:scale-90"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span>
+                                                    </button>
+                                                ) : quantity === 0 ? (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleAddToCart(product.id);
+                                                        }}
                                                         disabled={product.stock === 0}
                                                         className="w-9 h-9 bg-gray-900 text-white rounded-xl flex items-center justify-center shadow-lg hover:bg-primary transition-all active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
                                                     >
                                                         <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span>
                                                     </button>
                                                 ) : (
-                                                    <div className="flex items-center gap-1 bg-primary/10 rounded-xl px-1 py-0.5">
+                                                    <div className="flex items-center gap-1 bg-primary/10 rounded-xl px-1 py-0.5" onClick={(e) => e.stopPropagation()}>
                                                         <button
-                                                            onClick={() => handleDecreaseQuantity(product.id)}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDecreaseQuantity(product.id);
+                                                            }}
                                                             className="w-7 h-7 bg-white text-primary rounded-lg flex items-center justify-center shadow-sm hover:bg-primary hover:text-white transition-all active:scale-90"
                                                         >
                                                             <span className="material-symbols-outlined text-[16px]">remove</span>
                                                         </button>
                                                         <span className="text-xs font-black text-primary min-w-[18px] text-center">{quantity}</span>
                                                         <button
-                                                            onClick={() => handleIncreaseQuantity(product.id)}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleIncreaseQuantity(product.id);
+                                                            }}
                                                             className="w-7 h-7 bg-primary text-white rounded-lg flex items-center justify-center shadow-sm hover:bg-primary-dark transition-all active:scale-90"
                                                         >
                                                             <span className="material-symbols-outlined text-[16px]">add</span>

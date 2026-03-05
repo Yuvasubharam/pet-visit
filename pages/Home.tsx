@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Pet, Address, Booking } from '../types';
 import { consultationService, groomingService } from '../services/api';
+import NotificationBell from '../components/NotificationBell';
 
 interface Props {
     pets: Pet[];
@@ -14,6 +15,7 @@ interface Props {
     onDeletePet?: (petId: string) => void;
     onEditPet?: (petId: string) => void;
     onLocationClick?: () => void;
+    onRescheduleFromNotification?: (bookingId: string) => void;
     userAddress?: Address;
     userName?: string;
     userProfilePhoto?: string | null;
@@ -32,10 +34,11 @@ const formatAddressForHeader = (address: Address): string => {
     return `${address.type}, ${truncatedFlat}...`;
 };
 
-const Home: React.FC<Props> = ({ pets, onServiceClick, onShopClick, onBookingsClick, onPlusClick, onProfileClick, onAddPetClick, onDeletePet, onEditPet, onLocationClick, userAddress, userName, userProfilePhoto, userId }) => {
+const Home: React.FC<Props> = ({ pets, onServiceClick, onShopClick, onBookingsClick, onPlusClick, onProfileClick, onAddPetClick, onDeletePet, onEditPet, onLocationClick, onRescheduleFromNotification, userAddress, userName, userProfilePhoto, userId }) => {
     const [petToDelete, setPetToDelete] = useState<{ id: string; name: string } | null>(null);
     const [upcomingBooking, setUpcomingBooking] = useState<Booking | null>(null);
     const [isLoadingBooking, setIsLoadingBooking] = useState(true);
+    const [expandedPetImage, setExpandedPetImage] = useState<Pet | null>(null);
 
     // Default address if none provided
     const defaultAddress: Address = {
@@ -231,10 +234,10 @@ const Home: React.FC<Props> = ({ pets, onServiceClick, onShopClick, onBookingsCl
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center relative hover:bg-gray-100 transition-colors">
-                        <span className="material-symbols-outlined text-gray-600 text-[22px]">notifications</span>
-                        <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-                    </button>
+                    <NotificationBell
+                        userId={userId || null}
+                        onRescheduleClick={onRescheduleFromNotification}
+                    />
                     <div
                         onClick={onProfileClick}
                         className="w-10 h-10 rounded-full border-2 border-primary/20 p-0.5 overflow-hidden cursor-pointer hover:border-primary transition-colors"
@@ -312,7 +315,10 @@ const Home: React.FC<Props> = ({ pets, onServiceClick, onShopClick, onBookingsCl
                         {pets.map((pet) => (
                             <div key={pet.id} className="flex flex-col items-center gap-3 shrink-0">
                                 <div className="relative group">
-                                    <div className="w-20 h-20 rounded-[28px] border-2 border-white bg-white shadow-xl overflow-hidden p-1 transition-transform group-hover:rotate-3">
+                                    <div
+                                        className="w-20 h-20 rounded-[28px] border-2 border-white bg-white shadow-xl overflow-hidden p-1 transition-transform group-hover:rotate-3 cursor-pointer"
+                                        onClick={() => setExpandedPetImage(pet)}
+                                    >
                                         <img src={pet.image} className="w-full h-full rounded-[24px] object-cover" alt={pet.name} />
                                     </div>
                                     {/* Edit and Delete buttons - positioned at top-right */}
@@ -506,6 +512,119 @@ const Home: React.FC<Props> = ({ pets, onServiceClick, onShopClick, onBookingsCl
                     </button>
                 </div>
             </nav>
+
+            {/* Expanded Pet Image Modal */}
+            {expandedPetImage && (
+                <div
+                    className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6 animate-fade-in"
+                    onClick={() => setExpandedPetImage(null)}
+                >
+                    <div
+                        className="relative max-w-2xl w-full bg-white rounded-[32px] overflow-hidden shadow-2xl animate-scale-in"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Close Button */}
+                        <button
+                            onClick={() => setExpandedPetImage(null)}
+                            className="absolute top-4 right-4 w-12 h-12 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center text-slate-700 hover:bg-white transition-all z-10 shadow-lg"
+                        >
+                            <span className="material-symbols-outlined text-2xl">close</span>
+                        </button>
+
+                        {/* Pet Image */}
+                        <div className="aspect-square w-full bg-slate-100">
+                            <img
+                                src={expandedPetImage.image}
+                                alt={expandedPetImage.name}
+                                className="w-full h-full object-contain"
+                            />
+                        </div>
+
+                        {/* Pet Info */}
+                        <div className="p-6 bg-gradient-to-b from-white to-slate-50">
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="flex-1">
+                                    <h2 className="text-2xl font-black text-slate-900 mb-1">
+                                        {expandedPetImage.name}
+                                    </h2>
+                                    <p className="text-sm text-slate-600 font-bold">
+                                        {expandedPetImage.breed || expandedPetImage.species}
+                                    </p>
+                                </div>
+                                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                                    <span className="material-symbols-outlined text-primary text-3xl">pets</span>
+                                </div>
+                            </div>
+
+                            {/* Pet Details */}
+                            <div className="grid grid-cols-2 gap-3">
+                                {expandedPetImage.species && (
+                                    <div className="bg-white rounded-xl p-3 border border-slate-100">
+                                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">
+                                            Species
+                                        </p>
+                                        <p className="text-sm font-black text-slate-900">
+                                            {expandedPetImage.species}
+                                        </p>
+                                    </div>
+                                )}
+                                {expandedPetImage.age && (
+                                    <div className="bg-white rounded-xl p-3 border border-slate-100">
+                                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">
+                                            Age
+                                        </p>
+                                        <p className="text-sm font-black text-slate-900">
+                                            {expandedPetImage.age} years
+                                        </p>
+                                    </div>
+                                )}
+                                {expandedPetImage.weight && (
+                                    <div className="bg-white rounded-xl p-3 border border-slate-100">
+                                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">
+                                            Weight
+                                        </p>
+                                        <p className="text-sm font-black text-slate-900">
+                                            {expandedPetImage.weight} kg
+                                        </p>
+                                    </div>
+                                )}
+                                {expandedPetImage.breed && (
+                                    <div className="bg-white rounded-xl p-3 border border-slate-100">
+                                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">
+                                            Breed
+                                        </p>
+                                        <p className="text-sm font-black text-slate-900">
+                                            {expandedPetImage.breed}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-3 mt-6">
+                                {onEditPet && (
+                                    <button
+                                        onClick={() => {
+                                            setExpandedPetImage(null);
+                                            onEditPet(expandedPetImage.id);
+                                        }}
+                                        className="flex-1 py-3 bg-primary hover:bg-primary-dark text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <span className="material-symbols-outlined text-xl">edit</span>
+                                        Edit Pet
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setExpandedPetImage(null)}
+                                    className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

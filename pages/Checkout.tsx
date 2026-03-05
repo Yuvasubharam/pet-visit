@@ -243,18 +243,14 @@ const Checkout: React.FC<Props> = ({ onBack, onPay, userId, bookingData }) => {
 
                 <div className="space-y-4">
                     <div className="flex justify-between items-center text-sm font-bold">
-                        <span className="text-gray-400 uppercase tracking-widest text-[10px]">Service Fee (Doctor)</span>
+                        <span className="text-gray-400 uppercase tracking-widest text-[10px]">Service Fee</span>
                         <span className="text-gray-900">₹{(bookingData?.serviceFee || bookingData?.amount || 50).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm font-bold">
-                        <span className="text-gray-400 uppercase tracking-widest text-[10px]">Tax & Handling (Platform Fee)</span>
-                        <span className="text-gray-900">₹{(bookingData?.platformFee || ((bookingData?.amount || 50) * 0.05)).toFixed(2)}</span>
                     </div>
                     <div className="h-px bg-gray-50 w-full"></div>
                     <div className="flex justify-between items-center pt-2">
                         <span className="text-lg font-black text-gray-900">Total Due</span>
                         <span className="text-3xl font-black text-primary tracking-tighter">
-                            ₹{(bookingData?.totalAmount || ((bookingData?.amount || 50) * 1.05)).toFixed(2)}
+                            ₹{(bookingData?.totalAmount || bookingData?.amount || 50).toFixed(2)}
                         </span>
                     </div>
                 </div>
@@ -417,8 +413,8 @@ const Checkout: React.FC<Props> = ({ onBack, onPay, userId, bookingData }) => {
                 className="w-full py-5 bg-primary hover:bg-primary-light text-white font-black text-lg rounded-[28px] shadow-[0_20px_50px_rgba(1,75,122,0.3)] flex items-center justify-center gap-3 active:scale-[0.98] transition-all"
             >
                 {selectedPaymentMethod === 'cod'
-                    ? `Confirm Order • ₹${(bookingData?.totalAmount || ((bookingData?.amount || 50) * 1.05)).toFixed(2)}`
-                    : `Confirm Payment • ₹${(bookingData?.totalAmount || ((bookingData?.amount || 50) * 1.05)).toFixed(2)}`
+                    ? `Confirm Order • ₹${(bookingData?.totalAmount || bookingData?.amount || 50).toFixed(2)}`
+                    : `Confirm Payment • ₹${(bookingData?.totalAmount || bookingData?.amount || 50).toFixed(2)}`
                 }
             </button>
             <div className="flex items-center justify-center gap-2 mt-6 text-gray-300">
