@@ -9,7 +9,7 @@ const Splash: React.FC = () => {
           <div className="absolute -inset-12 bg-primary/5 blur-3xl rounded-full"></div>
           <img
             src="/assets/images/logo.png"
-            alt="Pet Visit Logo"
+            alt="Furora Care Logo"
             className="w-56 h-56 object-contain relative z-10 drop-shadow-2xl transition-transform duration-1000 scale-105"
           />
         </div>

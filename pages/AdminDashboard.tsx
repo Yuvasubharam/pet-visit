@@ -369,7 +369,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Overview Header */}
         <div className="px-4 pt-4 pb-2">
           <p className="text-slate-500 text-sm font-medium">Overview</p>
-          <h1 className="text-2xl font-bold text-slate-900">Pet Visit Statistics</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Furora Care Statistics</h1>
         </div>
 
         {loading ? (

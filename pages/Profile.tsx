@@ -259,7 +259,7 @@ const Profile: React.FC<Props> = ({ onBack, onHomeClick, onAppointmentsClick, on
               </>
             )}
           </button>
-          <p className="text-center text-xs text-slate-400 mt-4 font-medium uppercase tracking-widest">Pet Visit App v2.4.0</p>
+          <p className="text-center text-xs text-slate-400 mt-4 font-medium uppercase tracking-widest">Furora Care App v2.4.0</p>
         </section>
 
         <nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-100 z-50">

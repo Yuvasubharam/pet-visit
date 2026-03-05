@@ -1,6 +1,6 @@
 # Google Authentication Setup Guide
 
-This guide explains how to configure Google OAuth authentication for the Pet Visit application.
+This guide explains how to configure Google OAuth authentication for the Furora Care application.
 
 ## Overview
 
@@ -66,7 +66,7 @@ If you need to configure the OAuth consent screen or get the client secret:
 1. Navigate to **APIs & Services** → **OAuth consent screen**
 2. Select **External** user type
 3. Fill in the required information:
-   - App name: Pet Visit
+   - App name: Furora Care
    - User support email: your email
    - Developer contact email: your email
 4. Add scopes (optional, default scopes work for basic auth):
@@ -82,7 +82,7 @@ If you need to create new credentials:
 2. Click **Create Credentials** → **OAuth 2.0 Client ID**
 3. Select **Web application**
 4. Configure:
-   - Name: Pet Visit Web App
+   - Name: Furora Care Web App
    - Authorized JavaScript origins:
      ```
      http://localhost:3000

@@ -324,7 +324,7 @@ Congratulations! You can now:
 - ✅ Track earnings and statistics
 - ✅ Grow your grooming business!
 
-**Welcome to the Pet Visit Grooming Network! 🐕🐈**
+**Welcome to the Furora Care Grooming Network! 🐕🐈**
 
 ---
 

@@ -73,7 +73,7 @@ import PasswordSetupModal from './components/PasswordSetupModal';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(() => {
-    const saved = localStorage.getItem('pet-visit-current-view');
+    const saved = localStorage.getItem('furora-care-current-view');
     // If saved view exists and is not a "transient" view that should always go through splash/auth, return it
     if (saved && !['splash'].includes(saved)) {
       return saved as AppView;
@@ -84,11 +84,11 @@ const App: React.FC = () => {
   // Persist current view to localStorage
   useEffect(() => {
     if (currentView !== 'splash') {
-      localStorage.setItem('pet-visit-current-view', currentView);
+      localStorage.setItem('furora-care-current-view', currentView);
     }
   }, [currentView]);
   const [isLoadingUserData, setIsLoadingUserData] = useState(() => {
-    const saved = localStorage.getItem('pet-visit-current-view');
+    const saved = localStorage.getItem('furora-care-current-view');
     // If we have a saved view that isn't splash/onboarding, we should show loader while checking session
     return !!(saved && !['splash', 'onboarding'].includes(saved));
   });
@@ -277,7 +277,7 @@ const App: React.FC = () => {
         console.log('[onAuthStateChange] User logged out, resetting to onboarding');
         setUserId(null);
         setUserPets([]);
-        localStorage.removeItem('pet-visit-current-view');
+        localStorage.removeItem('furora-care-current-view');
         setCurrentView('onboarding');
       }
     });
@@ -520,15 +520,9 @@ const App: React.FC = () => {
       let needsPasswordSetup = false;
 
       if (isOAuthUser && currentUser?.email) {
-        try {
-          console.log('[loadUserData] Checking if OAuth user has password...');
-          needsPasswordSetup = !(await authService.checkUserHasPassword(currentUser.email));
-          console.log('[loadUserData] OAuth user needs password setup:', needsPasswordSetup);
-        } catch (err) {
-          console.error('[loadUserData] Error checking password for OAuth user:', err);
-          // Don't block login if password check fails
-          needsPasswordSetup = false;
-        }
+        // OAuth users always need password setup since they don't have passwords
+        console.log('[loadUserData] OAuth user detected, showing password setup modal');
+        needsPasswordSetup = true;
       }
 
       if (needsPasswordSetup && currentUser?.email) {
