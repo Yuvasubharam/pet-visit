@@ -220,7 +220,11 @@ const Home: React.FC<Props> = ({ pets, onServiceClick, onShopClick, onBookingsCl
         <div className="flex-1 flex flex-col bg-background-light fade-in overflow-hidden">
             <header className="px-6 py-4 flex items-center justify-between sticky top-0 bg-white shadow-sm z-30">
                 <div className="flex items-center gap-3">
-                    <img src="assets/images/logo.jpg" className="h-10 w-26 object-contain" alt="Logo" />
+                    <img src="assets/images/logo.png" className="h-8 w-8 object-contain" alt="Furora Care Logo" />
+                    <div className="flex flex-col">
+                        <h3 className="text-sm font-bold text-gray-900 leading-none">Furora Care</h3>
+                        <p className="text-[8px] text-gray-500 -mt-0.5">Pet Health & Wellness</p>
+                    </div>
                     <div className="h-8 w-[1px] bg-gray-100"></div>
                     <div
                         className="cursor-pointer hover:bg-gray-50 rounded-lg px-2 py-1 -mx-2 -my-1 transition-colors"

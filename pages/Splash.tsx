@@ -8,15 +8,15 @@ const Splash: React.FC = () => {
         <div className="relative">
           <div className="absolute -inset-12 bg-primary/5 blur-3xl rounded-full"></div>
           <img
-            src="./assets/images/logo.jpg"
+            src="./assets/images/logo.png"
             alt="Pet Visit Logo"
             className="w-56 h-56 object-contain relative z-10 drop-shadow-2xl transition-transform duration-1000 scale-105"
           />
         </div>
         <div className="text-center space-y-3">
-          <h1 className="text-5xl font-extrabold text-primary tracking-tighter font-display">Pet Visit</h1>
+          <h1 className="text-5xl font-extrabold text-primary tracking-tighter font-display">Furora Care</h1>
           <div className="h-0.5 w-12 bg-primary/20 mx-auto rounded-full"></div>
-          <p className="text-gray-400 font-semibold tracking-[0.2em] uppercase text-[10px]">Comfort • Care • Convenience</p>
+          <p className="text-gray-400 font-semibold tracking-[0.2em] uppercase text-[10px]">Pet Health & Wellness</p>
         </div>
       </div>
 

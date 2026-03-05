@@ -11,6 +11,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import SetPassword from './pages/SetPassword';
 import LoginWithOTP from './pages/LoginWithOTP';
+import UnifiedLogin from './pages/UnifiedLogin';
 import PetSelection from './pages/PetSelection';
 import AddPet from './pages/AddPet';
 import EditPet from './pages/EditPet';
@@ -68,6 +69,7 @@ import AdminMarginManagement from './pages/AdminMarginManagement';
 const AdminNotifications = React.lazy(() => import('./pages/AdminNotifications'));
 import NewBookingPopup from './components/NewBookingPopup';
 import LocationSelection from './components/LocationSelection';
+import PasswordSetupModal from './components/PasswordSetupModal';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(() => {
@@ -97,6 +99,8 @@ const App: React.FC = () => {
   const [userPhone, setUserPhone] = useState<string>('');
   const [userId, setUserId] = useState<string | null>(null);
   const [setPasswordEmail, setSetPasswordEmail] = useState<string>(''); // Email for OAuth user setting password
+  const [showPasswordSetupModal, setShowPasswordSetupModal] = useState(false);
+  const [passwordSetupEmail, setPasswordSetupEmail] = useState<string>('');
   const [userProfilePhoto, setUserProfilePhoto] = useState<string | null>(null);
   const [userCreatedAt, setUserCreatedAt] = useState<string>('');
   const [selectedPetType, setSelectedPetType] = useState<string>('dog');
@@ -178,7 +182,7 @@ const App: React.FC = () => {
   // Admin portal state
   const [adminId, setAdminId] = useState<string | null>(null);
   const [isAdminMode, setIsAdminMode] = useState(false);
-  
+
   // Store Manager portal state
   const [storeManagerId, setStoreManagerId] = useState<string | null>(null);
   const [isStoreManagerMode, setIsStoreManagerMode] = useState(false);
@@ -290,7 +294,7 @@ const App: React.FC = () => {
       console.log('[loadUserData] Already loading user data, skipping duplicate call');
       return;
     }
-    
+
     loadingRef.current = true;
     setIsLoadingUserData(true);
 
@@ -378,14 +382,14 @@ const App: React.FC = () => {
             doctorAuthService.getDoctorProfile(uid),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
           ]);
-          
+
           if (doctorProfile) {
             setDoctorId(doctorProfile.id);
             if (doctorProfile.full_name) setUserName(doctorProfile.full_name);
           } else {
             setDoctorId(uid);
           }
-          
+
           setIsDoctorMode(true);
           setCurrentView(prevView => {
             if (['splash', 'onboarding', 'doctor-login'].includes(prevView) || !prevView.startsWith('doctor-')) {
@@ -410,14 +414,14 @@ const App: React.FC = () => {
             groomingStoreAuthService.getGroomingStoreProfile(uid),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
           ]);
-          
+
           if (storeProfile) {
             setGroomingStoreId(storeProfile.id);
             if (storeProfile.store_name) setUserName(storeProfile.store_name);
           } else {
             setGroomingStoreId(uid);
           }
-          
+
           setIsGroomingStoreMode(true);
           setCurrentView(prevView => {
             if (['splash', 'onboarding', 'grooming-store-login'].includes(prevView) || !prevView.startsWith('grooming-store-')) {
@@ -437,12 +441,46 @@ const App: React.FC = () => {
 
       // Regular User Flow
       console.log('[loadUserData] Processing as regular user...');
+
+      // Check for Google profile photo
+      const googleAvatarUrl = currentUser?.user_metadata?.avatar_url || currentUser?.user_metadata?.picture;
+      const profilePhotoUrl = profile?.profile_photo_url || googleAvatarUrl || null;
+
       if (profile) {
         setUserName(profile.name);
         setUserEmail(profile.email || '');
         setUserPhone(profile.phone || '');
-        setUserProfilePhoto(profile.profile_photo_url || null);
+        setUserProfilePhoto(profilePhotoUrl);
         setUserCreatedAt(profile.created_at);
+      } else {
+        // No profile exists yet, create one with Google data if available
+        console.log('[loadUserData] No profile found, creating one for Google user...');
+        const userName = currentUser?.user_metadata?.full_name ||
+          currentUser?.user_metadata?.name ||
+          currentUser?.email?.split('@')[0] ||
+          'User';
+
+        try {
+          profile = await authService.createOrUpdateUserProfile(uid, {
+            name: userName,
+            email: currentUser?.email || undefined,
+            phone: currentUser?.phone || undefined,
+            profile_photo_url: googleAvatarUrl || undefined,
+          });
+          console.log('[loadUserData] ✓ Created profile for Google user:', profile);
+
+          setUserName(profile.name);
+          setUserEmail(profile.email || '');
+          setUserPhone(profile.phone || '');
+          setUserProfilePhoto(profilePhotoUrl);
+          setUserCreatedAt(profile.created_at);
+        } catch (err) {
+          console.error('[loadUserData] Error creating profile for Google user:', err);
+          // Fallback: just set the basic info without creating profile
+          setUserName(userName);
+          setUserEmail(currentUser?.email || '');
+          setUserProfilePhoto(googleAvatarUrl);
+        }
       }
 
       // Load data with timeouts
@@ -475,6 +513,33 @@ const App: React.FC = () => {
           longitude: addr.longitude || undefined,
           fullAddress: addr.full_address || undefined,
         });
+      }
+
+      // Check if user logged in with Google and needs password setup
+      const isOAuthUser = currentUser?.app_metadata?.provider === 'google';
+      let needsPasswordSetup = false;
+
+      if (isOAuthUser && currentUser?.email) {
+        try {
+          console.log('[loadUserData] Checking if OAuth user has password...');
+          needsPasswordSetup = !(await authService.checkUserHasPassword(currentUser.email));
+          console.log('[loadUserData] OAuth user needs password setup:', needsPasswordSetup);
+        } catch (err) {
+          console.error('[loadUserData] Error checking password for OAuth user:', err);
+          // Don't block login if password check fails
+          needsPasswordSetup = false;
+        }
+      }
+
+      if (needsPasswordSetup && currentUser?.email) {
+        console.log('[loadUserData] Showing password setup modal for OAuth user');
+        setPasswordSetupEmail(currentUser.email);
+        setShowPasswordSetupModal(true);
+        // Don't proceed with normal routing - wait for password setup
+        setIsLoadingUserData(false);
+        loadingRef.current = false;
+        setIsDataLoaded(true);
+        return;
       }
 
       // Routing for users
@@ -528,11 +593,15 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (currentView) {
       case 'splash': return <Splash />;
-      case 'onboarding': return <Onboarding onNext={() => setCurrentView('register')} onLogin={() => setCurrentView('login')} onDoctorLogin={() => setCurrentView('doctor-login')} onAdminLogin={() => setCurrentView('admin-login')} />;
+      case 'onboarding': return <Onboarding onNext={() => setCurrentView('register')} onLogin={() => setCurrentView('unified-login-user')} onDoctorLogin={() => setCurrentView('unified-login-doctor')} onAdminLogin={() => setCurrentView('unified-login-admin')} onGroomingStoreLogin={() => setCurrentView('unified-login-grooming-store')} />;
       case 'register': return <Register onNext={(name) => { setUserName(name); setCurrentView('pet-selection'); }} onSetPassword={(email) => { setSetPasswordEmail(email); setCurrentView('set-password'); }} />;
       case 'set-password': return <SetPassword email={setPasswordEmail} onBack={() => setCurrentView('register')} onComplete={() => setCurrentView('home')} />;
       case 'login': return <Login onNext={(name) => { setUserName(name); setCurrentView('home'); }} />;
       case 'login-otp': return <LoginWithOTP onNext={() => setCurrentView('home')} />;
+      case 'unified-login-user': return <UnifiedLogin userType="user" onBack={() => setCurrentView('onboarding')} onLoginSuccess={() => setCurrentView('home')} onRegisterDoctor={() => setCurrentView('doctor-register')} onRegisterGroomingStore={() => setCurrentView('grooming-store-register')} />;
+      case 'unified-login-doctor': return <UnifiedLogin userType="doctor" onBack={() => setCurrentView('onboarding')} onLoginSuccess={() => setCurrentView('doctor-dashboard')} onRegisterDoctor={() => setCurrentView('doctor-register')} onRegisterGroomingStore={() => setCurrentView('grooming-store-register')} />;
+      case 'unified-login-grooming-store': return <UnifiedLogin userType="grooming_store" onBack={() => setCurrentView('onboarding')} onLoginSuccess={() => setCurrentView('grooming-store-dashboard')} onRegisterDoctor={() => setCurrentView('doctor-register')} onRegisterGroomingStore={() => setCurrentView('grooming-store-register')} />;
+      case 'unified-login-admin': return <UnifiedLogin userType="admin" onBack={() => setCurrentView('onboarding')} onLoginSuccess={() => setCurrentView('admin-dashboard')} onRegisterDoctor={() => setCurrentView('doctor-register')} onRegisterGroomingStore={() => setCurrentView('grooming-store-register')} />;
       case 'pet-selection': return <PetSelection onNext={(petType) => { setSelectedPetType(petType); setCurrentView('add-pet'); }} onAdd={() => setCurrentView('add-pet')} onSkip={() => setCurrentView('home')} userName={userName} />;
       case 'add-pet': return <AddPet onBack={() => setCurrentView('pet-selection')} onCreate={async (pet) => {
         if (userId) {
@@ -1247,7 +1316,7 @@ const App: React.FC = () => {
           onBack={() => setCurrentView('admin-dashboard')}
         />
       );
-      
+
       case 'admin-margin-management': return (
         <AdminMarginManagement
           onBack={() => setCurrentView('admin-dashboard')}
@@ -1344,6 +1413,24 @@ const App: React.FC = () => {
           userId={userId}
         />
       )}
+
+      {/* Password Setup Modal for OAuth users */}
+      <PasswordSetupModal
+        email={passwordSetupEmail}
+        isOpen={showPasswordSetupModal}
+        onComplete={() => {
+          setShowPasswordSetupModal(false);
+          // Continue with normal user flow
+          const hasPets = userPets && userPets.length > 0;
+          setCurrentView(hasPets ? 'home' : 'pet-selection');
+        }}
+        onSkip={() => {
+          setShowPasswordSetupModal(false);
+          // Continue with normal user flow
+          const hasPets = userPets && userPets.length > 0;
+          setCurrentView(hasPets ? 'home' : 'pet-selection');
+        }}
+      />
     </div>
   );
 };

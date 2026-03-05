@@ -23,7 +23,7 @@ interface ExtendedProduct extends Product {
 
 const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCategory, onHomeClick, onVisitsClick, onProfileClick }) => {
     const [products, setProducts] = useState<ExtendedProduct[]>([]);
-    const [cartItems, setCartItems] = useState<{[key: string]: number}>({});
+    const [cartItems, setCartItems] = useState<{ [key: string]: number }>({});
     const [isLoading, setIsLoading] = useState(true);
     const [selectedCategory, setSelectedCategory] = useState(initialCategory || 'All');
     const [selectedPetType, setSelectedPetType] = useState<string>('all');
@@ -39,9 +39,9 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
 
     if (selectedProduct) {
         return (
-            <ProductDetail 
-                product={selectedProduct} 
-                onBack={() => setSelectedProduct(null)} 
+            <ProductDetail
+                product={selectedProduct}
+                onBack={() => setSelectedProduct(null)}
                 onCartClick={onCartClick}
                 userId={userId}
             />
@@ -91,7 +91,7 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
 
         try {
             const data = await cartService.getCartItems(userId);
-            const cartMap: {[key: string]: number} = {};
+            const cartMap: { [key: string]: number } = {};
             (data || []).forEach((item: any) => {
                 // Sum up quantities for the same product_id (regardless of variation)
                 cartMap[item.product_id] = (cartMap[item.product_id] || 0) + item.quantity;
@@ -186,7 +186,7 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                     <button onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 hover:bg-gray-100 transition-colors">
                         <span className="material-symbols-outlined text-gray-900">arrow_back</span>
                     </button>
-                    <img src="assets/images/logo.jpg" className="h-8 w-8 object-contain" alt="Logo" />
+                    <img src="assets/images/logo.png" className="h-8 w-8 object-contain" alt="Logo" />
                     <h1 className="text-xl font-black text-primary tracking-tight font-display">Pet Market</h1>
                 </div>
                 <button
@@ -213,7 +213,7 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                         className="w-full py-4 pl-12 pr-14 bg-white border-none rounded-[20px] shadow-sm focus:ring-2 focus:ring-primary/20 text-sm font-medium transition-all"
                     />
                     {searchQuery && (
-                        <button 
+                        <button
                             onClick={() => setSearchQuery('')}
                             className="absolute right-14 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600"
                         >
@@ -243,11 +243,10 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                             <button
                                 key={petType.id}
                                 onClick={() => setSelectedPetType(petType.id)}
-                                className={`px-5 py-2.5 rounded-full flex items-center gap-2 shrink-0 transition-all active:scale-95 ${
-                                    selectedPetType === petType.id
+                                className={`px-5 py-2.5 rounded-full flex items-center gap-2 shrink-0 transition-all active:scale-95 ${selectedPetType === petType.id
                                         ? 'bg-primary text-white shadow-lg shadow-primary/30'
                                         : 'bg-white text-gray-700 shadow-sm border border-gray-100 hover:border-primary/30'
-                                }`}
+                                    }`}
                             >
                                 <span className="material-symbols-outlined text-[16px]">{petType.icon}</span>
                                 <span className="text-[10px] font-black uppercase tracking-wider">{petType.name}</span>
@@ -262,11 +261,10 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                     <div className="flex gap-4 overflow-x-auto no-scrollbar py-2">
                         <button
                             onClick={() => setSelectedCategory('All')}
-                            className={`px-6 py-3 rounded-2xl flex items-center gap-2 shrink-0 shadow-lg transition-all active:scale-95 ${
-                                selectedCategory === 'All'
+                            className={`px-6 py-3 rounded-2xl flex items-center gap-2 shrink-0 shadow-lg transition-all active:scale-95 ${selectedCategory === 'All'
                                     ? 'bg-primary text-white shadow-primary/20'
                                     : 'bg-white text-gray-700 shadow-sm border border-gray-50 hover:border-primary/20'
-                            }`}
+                                }`}
                         >
                             <span className="material-symbols-outlined text-[18px]">apps</span>
                             <span className="text-xs font-black uppercase tracking-widest">All</span>
@@ -282,11 +280,10 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                             <button
                                 key={cat.name}
                                 onClick={() => setSelectedCategory(cat.name)}
-                                className={`px-6 py-3 rounded-2xl flex items-center gap-2 shrink-0 shadow-sm border transition-all active:scale-95 ${
-                                    selectedCategory === cat.name
+                                className={`px-6 py-3 rounded-2xl flex items-center gap-2 shrink-0 shadow-sm border transition-all active:scale-95 ${selectedCategory === cat.name
                                         ? 'bg-primary text-white border-primary shadow-primary/20'
                                         : 'bg-white text-gray-700 border-gray-50 hover:border-primary/20'
-                                }`}
+                                    }`}
                             >
                                 <span className={`material-symbols-outlined text-[18px] ${selectedCategory === cat.name ? 'text-white' : 'text-primary'}`}>{cat.icon}</span>
                                 <span className="text-xs font-black uppercase tracking-widest">{cat.name}</span>
@@ -331,14 +328,14 @@ const Marketplace: React.FC<Props> = ({ onBack, onCartClick, userId, initialCate
                             {filteredProducts.map((product) => {
                                 const quantity = getItemQuantity(product.id);
                                 return (
-                                    <div 
-                                        key={product.id} 
+                                    <div
+                                        key={product.id}
                                         onClick={() => setSelectedProduct(product)}
                                         className="bg-white rounded-[32px] p-4 shadow-md hover:shadow-xl transition-all group flex flex-col border border-gray-50 cursor-pointer"
                                     >
                                         <div className="relative aspect-square bg-gray-50 rounded-[24px] mb-4 flex items-center justify-center overflow-hidden group-hover:bg-primary/5 transition-colors">
                                             <img src={product.image} className="object-contain w-3/4 h-3/4 group-hover:scale-110 transition-transform duration-500" alt={product.name} />
-                                            <button 
+                                            <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     // Handle favorite logic

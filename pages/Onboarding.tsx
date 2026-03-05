@@ -6,6 +6,7 @@ interface Props {
   onLogin?: () => void;
   onDoctorLogin?: () => void;
   onAdminLogin?: () => void;
+  onGroomingStoreLogin?: () => void;
 }
 
 interface Slide {
@@ -16,8 +17,9 @@ interface Slide {
   description: string;
 }
 
-const Onboarding: React.FC<Props> = ({ onNext, onLogin, onDoctorLogin, onAdminLogin }) => {
+const Onboarding: React.FC<Props> = ({ onNext, onLogin, onDoctorLogin, onAdminLogin, onGroomingStoreLogin }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [showUserTypeModal, setShowUserTypeModal] = useState(false);
 
   const slides: Slide[] = [
     {
@@ -63,98 +65,153 @@ const Onboarding: React.FC<Props> = ({ onNext, onLogin, onDoctorLogin, onAdminLo
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-white fade-in overflow-y-auto scrollbar-hide">
-      <div className="flex-1 px-7 py-8 flex flex-col justify-center items-center min-h-fit">
-        <div className="flex items-center gap-2 mb-8 text-primary">
-          <div className="relative">
+    <>
+      <div className="flex-1 flex flex-col bg-white fade-in overflow-y-auto scrollbar-hide">
+        <div className="flex-1 px-7 py-8 flex flex-col justify-center items-center min-h-fit">
+          <div className="flex items-center gap-3 mb-8 text-primary">
+            <div className="relative">
+              <img
+                src="./assets/images/logo.png"
+                alt="Furora Care Logo"
+                className="w-16 h-16 relative z-1 object-contain"
+              />
+            </div>
+            <div className="flex flex-col">
+              <h1 className="text-2xl font-bold text-gray-900">Furora Care</h1>
+              <p className="text-sm text-gray-500 -mt-1">Pet Health & Wellness</p>
+            </div>
+          </div>
+
+          <div className="w-full aspect-square relative rounded-3xl overflow-hidden shadow-2xl mb-8 bg-[#9B8B6E]">
             <img
-              src="./assets/images/logo.jpg"
-              alt="Pet Visit Logo"
-              className="w-32 h-auto relative z-1 object-contain"
+              src={slides[currentSlide].image}
+              alt="Onboarding slide"
+              className="w-full h-full object-cover"
             />
+            <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full flex items-center gap-1.5 text-[11px] font-bold text-gray-800">
+              <span className="material-symbols-outlined text-base text-yellow-500">{slides[currentSlide].badgeIcon}</span>
+              {slides[currentSlide].badge}
+            </div>
+          </div>
+
+          <div className="text-center space-y-3 px-4">
+            <h1 className="text-3xl font-extrabold text-gray-900 leading-tight">{slides[currentSlide].title}</h1>
+            <p className="text-gray-500 text-base leading-relaxed">{slides[currentSlide].description}</p>
           </div>
         </div>
 
-        <div className="w-full aspect-square relative rounded-3xl overflow-hidden shadow-2xl mb-8 bg-[#9B8B6E]">
-          <img
-            src={slides[currentSlide].image}
-            alt="Onboarding slide"
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full flex items-center gap-1.5 text-[11px] font-bold text-gray-800">
-            <span className="material-symbols-outlined text-base text-yellow-500">{slides[currentSlide].badgeIcon}</span>
-            {slides[currentSlide].badge}
+        <div className="px-7 pb-8 space-y-4">
+          <div className="flex justify-center gap-2 mb-4">
+            {slides.map((_, index) => (
+              <div
+                key={index}
+                className={`h-1.5 rounded-full transition-all ${index === currentSlide ? 'w-8 bg-primary' : 'w-1.5 bg-gray-200'
+                  }`}
+              />
+            ))}
+          </div>
+          <button
+            onClick={handleNext}
+            className="w-full h-14 bg-primary hover:bg-primary-light text-white font-bold text-lg rounded-2xl shadow-lg transition-transform active:scale-95"
+          >
+            {currentSlide === slides.length - 1 ? 'Get Started' : 'Next'}
+          </button>
+
+          {currentSlide === slides.length - 1 && onLogin && (
+            <button
+              onClick={onLogin}
+              className="w-full h-12 bg-primary/5 text-primary font-bold text-sm rounded-2xl transition-transform active:scale-95"
+            >
+              Already have an account? Login
+            </button>
+          )}
+
+          {currentSlide === slides.length - 1 && (onDoctorLogin || onAdminLogin || onGroomingStoreLogin) && (
+            <button
+              onClick={() => setShowUserTypeModal(true)}
+              className="w-full h-12 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm rounded-2xl transition-transform active:scale-95"
+            >
+              Other Users
+            </button>
+          )}
+
+          {currentSlide < slides.length - 1 && (
+            <button
+              onClick={handleSkip}
+              className="w-full h-12 bg-primary/5 text-primary font-bold text-sm rounded-2xl transition-transform active:scale-95"
+            >
+              Skip
+            </button>
+          )}
+          <p className="text-center text-[10px] text-gray-400 mt-2">By joining, you agree to our Terms & Privacy Policy</p>
+        </div>
+      </div>
+
+      {/* User Type Selection Modal */}
+      {showUserTypeModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-primary to-blue-600 text-white p-6">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-xl font-bold">Select User Type</h2>
+                <button
+                  onClick={() => setShowUserTypeModal(false)}
+                  className="p-1 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+              <p className="text-white/90 text-sm">
+                Choose your account type to continue
+              </p>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-3">
+              {onDoctorLogin && (
+                <button
+                  onClick={() => {
+                    setShowUserTypeModal(false);
+                    onDoctorLogin();
+                  }}
+                  className="w-full flex items-center justify-center gap-3 py-4 px-4 bg-gradient-to-r from-primary/10 to-blue-500/10 hover:from-primary/20 hover:to-blue-500/20 text-primary font-bold rounded-xl transition-all border border-primary/20"
+                >
+                  <span className="material-symbols-outlined text-lg">stethoscope</span>
+                  <span>Doctor Login</span>
+                </button>
+              )}
+
+              {onGroomingStoreLogin && (
+                <button
+                  onClick={() => {
+                    setShowUserTypeModal(false);
+                    onGroomingStoreLogin();
+                  }}
+                  className="w-full flex items-center justify-center gap-3 py-4 px-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 hover:from-green-500/20 hover:to-emerald-500/20 text-green-700 font-bold rounded-xl transition-all border border-green-500/20"
+                >
+                  <span className="material-symbols-outlined text-lg">storefront</span>
+                  <span>Grooming Store Login</span>
+                </button>
+              )}
+
+              {onAdminLogin && (
+                <button
+                  onClick={() => {
+                    setShowUserTypeModal(false);
+                    onAdminLogin();
+                  }}
+                  className="w-full flex items-center justify-center gap-3 py-4 px-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 hover:from-amber-500/20 hover:to-orange-500/20 text-amber-700 font-bold rounded-xl transition-all border border-amber-500/20"
+                >
+                  <span className="material-symbols-outlined text-lg filled">admin_panel_settings</span>
+                  <span>Admin Login</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
-
-        <div className="text-center space-y-3 px-4">
-          <h1 className="text-3xl font-extrabold text-gray-900 leading-tight">{slides[currentSlide].title}</h1>
-          <p className="text-gray-500 text-base leading-relaxed">{slides[currentSlide].description}</p>
-        </div>
-      </div>
-
-      <div className="px-7 pb-8 space-y-4">
-        <div className="flex justify-center gap-2 mb-4">
-          {slides.map((_, index) => (
-            <div
-              key={index}
-              className={`h-1.5 rounded-full transition-all ${
-                index === currentSlide ? 'w-8 bg-primary' : 'w-1.5 bg-gray-200'
-              }`}
-            />
-          ))}
-        </div>
-        <button
-          onClick={handleNext}
-          className="w-full h-14 bg-primary hover:bg-primary-light text-white font-bold text-lg rounded-2xl shadow-lg transition-transform active:scale-95"
-        >
-          {currentSlide === slides.length - 1 ? 'Get Started' : 'Next'}
-        </button>
-
-        {currentSlide === slides.length - 1 && onLogin && (
-          <button
-            onClick={onLogin}
-            className="w-full h-12 bg-primary/5 text-primary font-bold text-sm rounded-2xl transition-transform active:scale-95"
-          >
-            Already have an account? Login
-          </button>
-        )}
-
-        {currentSlide === slides.length - 1 && onDoctorLogin && (
-          <button
-            onClick={onDoctorLogin}
-            className="w-full h-12 bg-gradient-to-r from-primary/10 to-blue-500/10 text-primary font-bold text-sm rounded-2xl transition-transform active:scale-95 border border-primary/20"
-          >
-            <span className="flex items-center justify-center gap-2">
-              <span className="material-symbols-outlined text-sm">stethoscope</span>
-              Doctor Login
-            </span>
-          </button>
-        )}
-
-        {currentSlide === slides.length - 1 && onAdminLogin && (
-          <button
-            onClick={onAdminLogin}
-            className="w-full h-12 bg-gradient-to-r from-amber-500/10 to-orange-500/10 text-amber-700 font-bold text-sm rounded-2xl transition-transform active:scale-95 border border-amber-500/20"
-          >
-            <span className="flex items-center justify-center gap-2">
-              <span className="material-symbols-outlined text-sm filled">admin_panel_settings</span>
-              Admin Login
-            </span>
-          </button>
-        )}
-
-        {currentSlide < slides.length - 1 && (
-          <button
-            onClick={handleSkip}
-            className="w-full h-12 bg-primary/5 text-primary font-bold text-sm rounded-2xl transition-transform active:scale-95"
-          >
-            Skip
-          </button>
-        )}
-        <p className="text-center text-[10px] text-gray-400 mt-2">By joining, you agree to our Terms & Privacy Policy</p>
-      </div>
-    </div>
+      )}
+    </>
   );
 };
 

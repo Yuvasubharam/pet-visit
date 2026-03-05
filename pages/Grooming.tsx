@@ -422,7 +422,7 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                     <button onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 hover:bg-gray-100 transition-colors">
                         <span className="material-symbols-outlined text-gray-900">arrow_back</span>
                     </button>
-                    <img src="assets/images/logo.jpg" className="h-8 w-8 object-contain" alt="Logo" />
+                    <img src="assets/images/logo.png" className="h-8 w-8 object-contain" alt="Logo" />
                     <h1 className="text-xl font-black text-primary tracking-tight font-display">
                         {isRescheduling ? 'Reschedule Grooming' : 'Grooming'}
                     </h1>
@@ -515,9 +515,8 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                                                 setUserAddress(addr);
                                                 setShowAddressDropdown(false);
                                             }}
-                                            className={`p-4 border-b border-gray-50 cursor-pointer transition-colors ${
-                                                userAddress?.id === addr.id ? 'bg-primary/5' : 'hover:bg-gray-50'
-                                            }`}
+                                            className={`p-4 border-b border-gray-50 cursor-pointer transition-colors ${userAddress?.id === addr.id ? 'bg-primary/5' : 'hover:bg-gray-50'
+                                                }`}
                                         >
                                             <div className="flex items-start gap-3">
                                                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -677,11 +676,10 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                             <div
                                 key={store.id}
                                 onClick={() => !isRescheduling && setSelectedStore(store)}
-                                className={`flex-shrink-0 w-[280px] p-5 rounded-[24px] border-2 transition-all ${isRescheduling ? 'cursor-default' : 'cursor-pointer'} ${
-                                    selectedStore?.id === store.id
+                                className={`flex-shrink-0 w-[280px] p-5 rounded-[24px] border-2 transition-all ${isRescheduling ? 'cursor-default' : 'cursor-pointer'} ${selectedStore?.id === store.id
                                         ? 'border-primary bg-white ring-4 ring-primary/5 shadow-xl'
                                         : 'border-white bg-white shadow-sm hover:shadow-md'
-                                }`}
+                                    }`}
                             >
                                 <div className="flex items-start justify-between mb-3">
                                     <div className="flex-1 min-w-0">
@@ -695,9 +693,8 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                                             </div>
                                         )}
                                     </div>
-                                    <div className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ml-2 ${
-                                        selectedStore?.id === store.id ? 'border-primary bg-primary' : 'border-gray-200'
-                                    }`}>
+                                    <div className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ml-2 ${selectedStore?.id === store.id ? 'border-primary bg-primary' : 'border-gray-200'
+                                        }`}>
                                         {selectedStore?.id === store.id && (
                                             <span className="material-symbols-outlined text-white text-[14px] font-black">check</span>
                                         )}
@@ -838,11 +835,10 @@ const Grooming: React.FC<Props> = ({ onBack, pets, userId, defaultAddress, onPro
                                         setUserAddress(addr);
                                         setShowAddressDropdown(false);
                                     }}
-                                    className={`w-full p-4 rounded-[20px] border-2 transition-all text-left ${
-                                        userAddress?.id === addr.id
+                                    className={`w-full p-4 rounded-[20px] border-2 transition-all text-left ${userAddress?.id === addr.id
                                             ? 'border-primary bg-primary/5'
                                             : 'border-gray-200 hover:border-gray-300'
-                                    }`}
+                                        }`}
                                 >
                                     <div className="flex items-start gap-3">
                                         <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
