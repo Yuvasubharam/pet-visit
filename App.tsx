@@ -442,6 +442,29 @@ const App: React.FC = () => {
       // Regular User Flow
       console.log('[loadUserData] Processing as regular user...');
 
+      // Check if user logged in with OAuth and needs password setup - DO THIS BEFORE PROFILE OPERATIONS
+      const isOAuthUser = (currentUser?.app_metadata?.provider && currentUser.app_metadata.provider !== 'email') ||
+        (currentUser?.raw_app_meta_data?.provider && currentUser.raw_app_meta_data.provider !== 'email');
+      const hasPasswordSet = currentUser?.user_metadata?.password_set === true;
+      let needsPasswordSetup = false;
+
+      if (isOAuthUser && currentUser?.email && !hasPasswordSet) {
+        // OAuth users need password setup only if they haven't set one yet
+        console.log('[loadUserData] OAuth user without password detected, showing password setup modal');
+        needsPasswordSetup = true;
+      }
+
+      if (needsPasswordSetup && currentUser?.email) {
+        console.log('[loadUserData] Showing password setup modal for OAuth user');
+        setPasswordSetupEmail(currentUser.email);
+        setShowPasswordSetupModal(true);
+        // Don't proceed with normal routing - wait for password setup
+        setIsLoadingUserData(false);
+        loadingRef.current = false;
+        setIsDataLoaded(true);
+        return;
+      }
+
       // Check for Google profile photo
       const googleAvatarUrl = currentUser?.user_metadata?.avatar_url || currentUser?.user_metadata?.picture;
       const profilePhotoUrl = profile?.profile_photo_url || googleAvatarUrl || null;
@@ -453,34 +476,17 @@ const App: React.FC = () => {
         setUserProfilePhoto(profilePhotoUrl);
         setUserCreatedAt(profile.created_at);
       } else {
-        // No profile exists yet, create one with Google data if available
-        console.log('[loadUserData] No profile found, creating one for Google user...');
+        // For OAuth users, skip profile creation to avoid timeouts and just use basic info
+        console.log('[loadUserData] Skipping profile creation for OAuth user, using basic info');
         const userName = currentUser?.user_metadata?.full_name ||
           currentUser?.user_metadata?.name ||
           currentUser?.email?.split('@')[0] ||
           'User';
 
-        try {
-          profile = await authService.createOrUpdateUserProfile(uid, {
-            name: userName,
-            email: currentUser?.email || undefined,
-            phone: currentUser?.phone || undefined,
-            profile_photo_url: googleAvatarUrl || undefined,
-          });
-          console.log('[loadUserData] ✓ Created profile for Google user:', profile);
-
-          setUserName(profile.name);
-          setUserEmail(profile.email || '');
-          setUserPhone(profile.phone || '');
-          setUserProfilePhoto(profilePhotoUrl);
-          setUserCreatedAt(profile.created_at);
-        } catch (err) {
-          console.error('[loadUserData] Error creating profile for Google user:', err);
-          // Fallback: just set the basic info without creating profile
-          setUserName(userName);
-          setUserEmail(currentUser?.email || '');
-          setUserProfilePhoto(googleAvatarUrl);
-        }
+        setUserName(userName);
+        setUserEmail(currentUser?.email || '');
+        setUserProfilePhoto(googleAvatarUrl);
+        // Don't set created_at since we don't have a profile
       }
 
       // Load data with timeouts
@@ -513,27 +519,6 @@ const App: React.FC = () => {
           longitude: addr.longitude || undefined,
           fullAddress: addr.full_address || undefined,
         });
-      }
-
-      // Check if user logged in with Google and needs password setup
-      const isOAuthUser = currentUser?.app_metadata?.provider === 'google';
-      let needsPasswordSetup = false;
-
-      if (isOAuthUser && currentUser?.email) {
-        // OAuth users always need password setup since they don't have passwords
-        console.log('[loadUserData] OAuth user detected, showing password setup modal');
-        needsPasswordSetup = true;
-      }
-
-      if (needsPasswordSetup && currentUser?.email) {
-        console.log('[loadUserData] Showing password setup modal for OAuth user');
-        setPasswordSetupEmail(currentUser.email);
-        setShowPasswordSetupModal(true);
-        // Don't proceed with normal routing - wait for password setup
-        setIsLoadingUserData(false);
-        loadingRef.current = false;
-        setIsDataLoaded(true);
-        return;
       }
 
       // Routing for users

@@ -149,12 +149,31 @@ export const authService = {
         throw new Error('User not authenticated or email mismatch');
       }
 
-      // Update password using updateUser
+      // Update password using updateUser and mark password as set in metadata
       const { data, error } = await supabase.auth.updateUser({
         password: password,
+        data: {
+          ...user.user_metadata,
+          password_set: true
+        }
       });
 
-      if (error) throw error;
+      if (error) {
+        // If the error is that the new password is the same as old, it means password is already set
+        if (error.message.includes('New password should be different from the old password')) {
+          console.log('Password already set to this value, just updating metadata');
+          // Update only the metadata
+          const { data: metadataData, error: metadataError } = await supabase.auth.updateUser({
+            data: {
+              ...user.user_metadata,
+              password_set: true
+            }
+          });
+          if (metadataError) throw metadataError;
+          return metadataData;
+        }
+        throw error;
+      }
       return data;
     } catch (err) {
       console.error('Error setting password:', err);
@@ -475,7 +494,7 @@ export const bookingService = {
   },
 
   async updatePaymentStatus(bookingId: string, paymentStatus: 'pending' | 'paid' | 'failed') {
-    const { data, error} = await supabase
+    const { data, error } = await supabase
       .from('bookings')
       .update({ payment_status: paymentStatus })
       .eq('id', bookingId)

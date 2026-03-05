@@ -60,7 +60,13 @@ const PasswordSetupModal: React.FC<PasswordSetupModalProps> = ({
             onComplete();
         } catch (err: any) {
             console.error('Error setting password:', err);
-            setError(err.message || 'Failed to set password. Please try again.');
+            // If the password is already set to this value, treat as success
+            if (err.message && err.message.includes('New password should be different from the old password')) {
+                console.log('Password already set, treating as success');
+                onComplete();
+            } else {
+                setError(err.message || 'Failed to set password. Please try again.');
+            }
         } finally {
             setLoading(false);
         }
